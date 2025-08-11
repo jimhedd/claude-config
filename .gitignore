@@ -24,5 +24,8 @@ statsig/
 # Todo files (these are session-specific)
 todos/
 
+# Project session logs
+projects/
+
 # DevBox temporary files
 .devbox

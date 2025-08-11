@@ -1,0 +1,27 @@
+# IDE files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary/cache files
+*.tmp
+*.log
+shell-snapshots/
+
+# Local settings (personal preferences)
+settings.local.json
+
+# Backup files
+*.bak
+
+# Statistics/telemetry data
+statsig/
+
+# Todo files (these are session-specific)
+todos/
+
+# DevBox temporary files
+.devbox

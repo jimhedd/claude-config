@@ -1,6 +1,7 @@
 # IDE files
 .idea/
 .vscode/
+ide/
 
 # OS files
 .DS_Store

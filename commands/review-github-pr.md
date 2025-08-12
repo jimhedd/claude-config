@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh pr:*)
+allowed-tools: Bash(gh pr:*), Bash(gh api:*), Bash(jq:*)
 description: Checkout and review a GitHub pull request by PR number.
 requires-argument: true
 argument-description: PR number to review
@@ -17,21 +17,20 @@ This command conducts a thorough code review following professional standards wi
 
 1. **Argument Validation**: Verify PR number argument was provided
 2. **Context Gathering**: Use `gh pr view <PR_NUMBER>` to understand PR context, description, and purpose
-3. **Status Check**: Use `gh pr checks <PR_NUMBER>` to verify CI/CD status before reviewing
-4. **Branch Checkout**: Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch locally
-5. **File Analysis**: Use `gh pr diff <PR_NUMBER>` and examine actual changed files using Read tool
-6. **Comprehensive Review**: Follow detailed review methodology below
-7. **Submit Line Comments**: Use `gh pr comment` for ALL feedback, then `gh pr review` only to approve/request changes
+3. **Branch Checkout**: Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch locally
+4. **File Analysis**: Use `gh pr diff <PR_NUMBER>` and examine actual changed files using Read tool
+5. **Comprehensive Review**: Follow detailed review methodology below
+6. **Submit Line Comments**: Use GitHub API to create inline comments on specific code lines
 
 ## Review Process - Line Comments Only
 
-**CRITICAL**: Use `gh pr comment` for ALL feedback. Use `gh pr review` ONLY for final approve/request-changes without any body text.
+**CRITICAL**: Use GitHub API via `gh api` for ALL inline feedback.
 
 ### Review Analysis Steps
 1. **Read all changed files completely** using Read tool for full context
 2. **Identify specific issues** on exact lines that need feedback
-3. **Submit each issue as line comment** using `gh pr comment` with file and line number
-4. **Final action only** - use `gh pr review --approve` or `gh pr review --request-changes` with NO body text
+3. **Submit inline comments** using GitHub API with proper JSON structure
+4. **Final action only** - use `gh pr review --approve` or `gh pr review --request-changes`
 
 ### What to Review (Via Inline Comments Only)
 - **Type inconsistencies**: Point to exact lines where types don't match
@@ -45,28 +44,9 @@ This command conducts a thorough code review following professional standards wi
 ## Inline Comment Standards
 
 ### Required Comment Format
-- **File and line reference**: Always start with `filename:line`
-- **Quote the problematic code**: Include the actual code being reviewed
 - **Specific issue**: Clearly state what's wrong
 - **Concrete suggestion**: Provide exact replacement code or solution
 - **Reasoning**: Explain why the change improves the code
-
-### Examples of Good Inline Comments
-✅ **Good**: 
-```
-BuggyValidator.kt:35 - Missing null check will cause NullPointerException
-Current: `user.email.length > 0`
-Should be: `user.email?.let { it.length > 0 } ?: false`
-This prevents crashes when user.email is null.
-```
-
-✅ **Good**: 
-```
-CodeException.kt:19 - Infinite recursion will cause StackOverflowError  
-Current: `toString() { return toString() }`
-Should be: `toString() { return "CodeException: $message" }`
-The current implementation calls itself infinitely.
-```
 
 ❌ **Avoid**: Vague comments like "Consider improving error handling" or "Type inconsistency found"
 
@@ -74,46 +54,58 @@ The current implementation calls itself infinitely.
 
 **GitHub CLI Limitation**: `gh pr comment` and `gh pr review` don't support true inline comments on specific lines.
 
-**Solution: Use GitHub API via gh api**
+**Creating Multiple Inline Comments with GitHub API**
+
 ```bash
-# Create a review with inline comments using stdin:
-gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
-  --method POST \
-  --input <(echo '{
-    "event": "COMMENT",
-    "body": "Code review feedback",
-    "comments": [
-      {
-        "path": "filename.kt",
-        "line": 27,
-        "body": "Logic change may affect error handling behavior\n\nCurrent: if (filteredResult.isEmpty())\nPrevious: if (filteredResult.size != 1)\n\nThis changes behavior when multiple valid matches are found."
-      }
-    ]
-  }')
+# Define multi-line comment messages as variables:
+comment1="Missing null check will cause NullPointerException
 
-# For multiple inline comments in one review:
-gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
-  --method POST \
-  --input <(echo '{
-    "event": "REQUEST_CHANGES", 
-    "body": "Issues found requiring changes",
-    "comments": [
-      {
-        "path": "file1.kt",
-        "line": 27,
-        "body": "First issue description with specific fix"
-      },
-      {
-        "path": "file2.kt",
-        "line": 35,
-        "body": "Second issue description with solution"
-      }
-    ]
-  }')
+Current: user.email.length > 0
+Suggested: user.email?.let { it.length > 0 } ?: false
 
-# Or approve if no issues:
-gh pr review <PR_NUMBER> --approve
+This prevents crashes when user.email is null."
+
+comment2="Logic error in validation
+
+Current: if (result.isEmpty())
+Previous: if (result.size != 1)
+
+This changes behavior for multiple matches - document if intentional."
+
+# Submit all inline comments using jq with proper variable substitution:
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
+  --method POST \
+  --input <(jq -n \
+    --arg c1 "$comment1" \
+    --arg c2 "$comment2" \
+    '{
+      event: "REQUEST_CHANGES",
+      body: "Code review feedback",
+      comments: [
+        {
+          path: "src/main/kotlin/File1.kt",
+          line: 15,
+          body: $c1
+        },
+        {
+          path: "src/main/kotlin/File2.kt",
+          line: 42,
+          body: $c2
+        }
+      ]
+    }')
+
+# If no issues found, approve instead:
+# gh pr review PR_NUMBER --approve
 ```
+
+**CRITICAL REQUIREMENTS:**
+- `"path"`: Must be relative path from repo root (exactly as shown in `gh pr diff`)
+- `"line"`: Must be line number from the NEW version of the file
+- `"body"`: Your detailed feedback with quotes and suggestions (max 65,536 characters)
+- `"event"`: Use `"COMMENT"` for feedback or `"REQUEST_CHANGES"` if blocking
+- Always include `"body"` field at review level (even if just "Code review complete")
+- **Character Limit**: Each comment body is limited to 65,536 characters by GitHub API
 
 **API Format for Each Issue:**
 ```json

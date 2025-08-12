@@ -7,49 +7,116 @@ argument-description: PR number to review
 
 # Review GitHub PR
 
-Checkout a pull request and perform a code review.
+Perform a comprehensive code review on a GitHub pull request by PR number.
 
 ## Purpose
 
-This command performs a code review on a GitHub pull request by PR number.
+This command conducts a thorough code review following professional standards with specific, actionable feedback tied to exact code locations.
 
 ## Instructions
 
-1. Verify that a PR number argument was provided
-2. Use `gh pr view <PR_NUMBER>` to understand the PR context and description
-3. Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch
-4. Use `gh pr diff <PR_NUMBER>` to review the code changes
-5. Perform thorough code review following best practices below
-6. Use `gh pr review <PR_NUMBER>` to submit review feedback if needed
-7. If all looks good, approve with `gh pr review <PR_NUMBER> --approve`
+1. **Argument Validation**: Verify PR number argument was provided
+2. **Context Gathering**: Use `gh pr view <PR_NUMBER>` to understand PR context, description, and purpose
+3. **Status Check**: Use `gh pr checks <PR_NUMBER>` to verify CI/CD status before reviewing
+4. **Branch Checkout**: Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch locally
+5. **File Analysis**: Use `gh pr diff <PR_NUMBER>` and examine actual changed files using Read tool
+6. **Comprehensive Review**: Follow detailed review methodology below
+7. **Submit Line Comments**: Use `gh pr comment` for ALL feedback, then `gh pr review` only to approve/request changes
 
-## Code Review Best Practices
+## Review Process - Line Comments Only
 
-### Before Reviewing
-- **Understand the context**: Read the PR description, linked issues, and commit messages
-- **Check CI status**: Use `gh pr checks <PR_NUMBER>` to verify build status
-- **Review scope**: Ensure the changes align with the stated purpose
+**CRITICAL**: Use `gh pr comment` for ALL feedback. Use `gh pr review` ONLY for final approve/request-changes without any body text.
 
-### During Review
-- **Security first**: Look for potential security vulnerabilities, exposed secrets, or unsafe operations
-- **Code quality**: Check for readability, maintainability, and adherence to coding standards
-- **Performance**: Identify potential performance bottlenecks or inefficiencies
-- **Testing**: Verify adequate test coverage and quality of tests
-- **Documentation**: Ensure code is properly documented and comments explain "why" not "what"
-- **Error handling**: Check for proper error handling and edge case coverage
+### Review Analysis Steps
+1. **Read all changed files completely** using Read tool for full context
+2. **Identify specific issues** on exact lines that need feedback
+3. **Submit each issue as line comment** using `gh pr comment` with file and line number
+4. **Final action only** - use `gh pr review --approve` or `gh pr review --request-changes` with NO body text
 
-### Review Focus Areas
-- **Logic errors**: Verify business logic is correct
-- **Resource management**: Check for memory leaks, file handle closures, etc.
-- **API contracts**: Ensure backward compatibility and proper versioning
-- **Dependencies**: Review new dependencies for necessity and security
-- **Configuration**: Check for hardcoded values that should be configurable
+### What to Review (Via Inline Comments Only)
+- **Type inconsistencies**: Point to exact lines where types don't match
+- **Logic errors**: Comment on specific lines with incorrect business logic  
+- **Security issues**: Flag lines with potential vulnerabilities
+- **Performance problems**: Identify inefficient code on specific lines
+- **Missing error handling**: Comment where error handling is absent
+- **Code style violations**: Point to lines not following conventions
+- **Documentation gaps**: Comment where code needs explanation
 
-### Providing Feedback
-- **Comments are primary**: Use inline comments on specific lines for all feedback
-- **Review summary sparingly**: Only add review-level comments for urgent blocking issues
-- **Be specific**: Point to exact lines and suggest concrete improvements
-- **Keep it actionable**: Focus on what needs to change, not just what's wrong
+## Inline Comment Standards
+
+### Required Comment Format
+- **File and line reference**: Always start with `filename:line`
+- **Quote the problematic code**: Include the actual code being reviewed
+- **Specific issue**: Clearly state what's wrong
+- **Concrete suggestion**: Provide exact replacement code or solution
+- **Reasoning**: Explain why the change improves the code
+
+### Examples of Good Inline Comments
+✅ **Good**: 
+```
+BuggyValidator.kt:35 - Missing null check will cause NullPointerException
+Current: `user.email.length > 0`
+Should be: `user.email?.let { it.length > 0 } ?: false`
+This prevents crashes when user.email is null.
+```
+
+✅ **Good**: 
+```
+CodeException.kt:19 - Infinite recursion will cause StackOverflowError  
+Current: `toString() { return toString() }`
+Should be: `toString() { return "CodeException: $message" }`
+The current implementation calls itself infinitely.
+```
+
+❌ **Avoid**: Vague comments like "Consider improving error handling" or "Type inconsistency found"
+
+## GitHub CLI Review Commands
+
+**GitHub CLI Limitation**: `gh pr comment` and `gh pr review` don't support true inline comments on specific lines.
+
+**Solution: Use GitHub API via gh api**
+```bash
+# Create a review with inline comments using proper JSON:
+gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
+  --method POST \
+  --field event="COMMENT" \
+  --raw-field comments='[
+    {
+      "path": "filename.kt",
+      "line": 27,
+      "body": "Logic change may affect error handling behavior\n\nCurrent: if (filteredResult.isEmpty())\nPrevious: if (filteredResult.size != 1)\n\nThis changes behavior when multiple valid matches are found."
+    }
+  ]'
+
+# For multiple comments in one review:
+gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
+  --method POST \
+  --field event="REQUEST_CHANGES" \
+  --raw-field comments='[
+    {
+      "path": "file1.kt",
+      "line": 27,
+      "body": "First issue description"
+    },
+    {
+      "path": "file2.kt", 
+      "line": 35,
+      "body": "Second issue description"
+    }
+  ]'
+
+# Or approve if no issues:
+gh pr review <PR_NUMBER> --approve
+```
+
+**API Format for Each Issue:**
+```json
+{
+  "path": "relative/path/to/file.kt",
+  "line": 35,
+  "body": "Specific issue description with code quotes and solution"
+}
+```
 
 ## GitHub CLI Commands Reference
 

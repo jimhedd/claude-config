@@ -76,34 +76,40 @@ The current implementation calls itself infinitely.
 
 **Solution: Use GitHub API via gh api**
 ```bash
-# Create a review with inline comments using proper JSON:
+# Create a review with inline comments using stdin:
 gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
   --method POST \
-  --field event="COMMENT" \
-  --raw-field comments='[
-    {
-      "path": "filename.kt",
-      "line": 27,
-      "body": "Logic change may affect error handling behavior\n\nCurrent: if (filteredResult.isEmpty())\nPrevious: if (filteredResult.size != 1)\n\nThis changes behavior when multiple valid matches are found."
-    }
-  ]'
+  --input <(echo '{
+    "event": "COMMENT",
+    "body": "Code review feedback",
+    "comments": [
+      {
+        "path": "filename.kt",
+        "line": 27,
+        "body": "Logic change may affect error handling behavior\n\nCurrent: if (filteredResult.isEmpty())\nPrevious: if (filteredResult.size != 1)\n\nThis changes behavior when multiple valid matches are found."
+      }
+    ]
+  }')
 
-# For multiple comments in one review:
+# For multiple inline comments in one review:
 gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
   --method POST \
-  --field event="REQUEST_CHANGES" \
-  --raw-field comments='[
-    {
-      "path": "file1.kt",
-      "line": 27,
-      "body": "First issue description"
-    },
-    {
-      "path": "file2.kt", 
-      "line": 35,
-      "body": "Second issue description"
-    }
-  ]'
+  --input <(echo '{
+    "event": "REQUEST_CHANGES", 
+    "body": "Issues found requiring changes",
+    "comments": [
+      {
+        "path": "file1.kt",
+        "line": 27,
+        "body": "First issue description with specific fix"
+      },
+      {
+        "path": "file2.kt",
+        "line": 35,
+        "body": "Second issue description with solution"
+      }
+    ]
+  }')
 
 # Or approve if no issues:
 gh pr review <PR_NUMBER> --approve

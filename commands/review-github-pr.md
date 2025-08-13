@@ -2,7 +2,7 @@
 allowed-tools: Bash(gh pr:*), Bash(gh api:*), Bash(jq:*)
 description: Checkout and review a GitHub pull request by PR number.
 requires-argument: true
-argument-description: PR number to review
+argument-description: PR number to review (optionally include --auto-approve for automatic approval if strict criteria are met)
 ---
 
 # Review GitHub PR
@@ -15,12 +15,38 @@ This command conducts a thorough code review following professional standards wi
 
 ## Instructions
 
-1. **Argument Validation**: Verify PR number argument was provided
+1. **Argument Validation**: Verify PR number argument was provided. Check if `--auto-approve` flag is included.
 2. **Context Gathering**: Use `gh pr view <PR_NUMBER>` to understand PR context, description, and purpose
 3. **Branch Checkout**: Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch locally
 4. **File Analysis**: Use `gh pr diff <PR_NUMBER>` and examine actual changed files using Read tool
 5. **Comprehensive Review**: Follow detailed review methodology below
 6. **Submit Line Comments**: Use GitHub API to create inline comments on specific code lines
+7. **Conditional Approval**: Only approve if `--auto-approve` flag is passed AND all strict criteria are met
+
+## Auto-Approval Criteria (EXTREMELY SELECTIVE)
+
+**⚠️ WARNING**: Auto-approval should only be used for PRs that meet ALL of the following strict criteria:
+
+### MANDATORY Requirements (ALL must be true):
+- ✅ **No security vulnerabilities** found anywhere in the code
+- ✅ **No logic errors or bugs** detected in any changed files
+- ✅ **Perfect code style** adherence to project conventions
+- ✅ **Complete error handling** for all potential failure cases
+- ✅ **No performance concerns** or inefficient patterns
+- ✅ **Passing CI/CD checks** (verify with `gh pr checks <PR_NUMBER>`)
+- ✅ **Trivial/low-risk changes only** (documentation, formatting, minor refactoring)
+- ✅ **No breaking changes** to public APIs or interfaces
+- ✅ **Comprehensive test coverage** for any new functionality
+
+### REJECT Auto-Approval If ANY of These Exist:
+- 🚫 Complex business logic changes
+- 🚫 Database schema modifications
+- 🚫 Authentication/authorization changes
+- 🚫 External API integrations
+- 🚫 Performance-critical code paths
+- 🚫 Security-sensitive areas
+- 🚫 Missing or inadequate tests
+- 🚫 Any uncertainty about code behavior
 
 ## Review Process - Line Comments Only
 
@@ -79,7 +105,7 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
     --arg c1 "$comment1" \
     --arg c2 "$comment2" \
     '{
-      event: "REQUEST_CHANGES",
+      event: "COMMENT",
       body: "Code review feedback",
       comments: [
         {
@@ -95,15 +121,17 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
       ]
     }')
 
-# If no issues found, approve instead:
-# gh pr review PR_NUMBER --approve
+# If no issues found AND --auto-approve flag was passed AND all strict criteria are met:
+# gh pr review PR_NUMBER --approve --body "Auto-approved: All criteria met, no issues found"
+
+# Otherwise, do NOT approve automatically - only submit comments
 ```
 
 **CRITICAL REQUIREMENTS:**
 - `"path"`: Must be relative path from repo root (exactly as shown in `gh pr diff`)
 - `"line"`: Must be line number from the NEW version of the file
 - `"body"`: Your detailed feedback with quotes and suggestions (max 65,536 characters)
-- `"event"`: Use `"COMMENT"` for feedback or `"REQUEST_CHANGES"` if blocking
+- `"event"`: Use `"COMMENT"` for feedback (default), `"REQUEST_CHANGES"` if blocking issues found, or `"APPROVE"` only if --auto-approve flag is passed and all criteria are met
 - Always include `"body"` field at review level (even if just "Code review complete")
 - **Character Limit**: Each comment body is limited to 65,536 characters by GitHub API
 
@@ -124,7 +152,7 @@ gh pr checkout <PR_NUMBER>       # Switch to PR branch locally
 gh pr diff <PR_NUMBER>           # Show code changes
 gh pr checks <PR_NUMBER>         # View CI/CD status
 gh pr review <PR_NUMBER>         # Submit review (approve/request changes/comment)
-gh pr review <PR_NUMBER> --approve   # Approve the pull request
+gh pr review <PR_NUMBER> --approve   # Only use if --auto-approve flag passed and all criteria met
 gh pr status                     # Show PR status for current repo
 ```
 

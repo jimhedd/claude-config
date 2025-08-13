@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh pr:*), Bash(gh api:*), Bash(jq:*)
+allowed-tools: Bash(gh pr:*), Bash(gh api:*), Bash(comment:*)
 description: Checkout and review a GitHub pull request by PR number.
 requires-argument: true
 argument-description: PR number to review
@@ -54,6 +54,15 @@ This command conducts a thorough code review following professional standards wi
 **GitHub CLI Limitation**: Avoid using `gh pr comment` and `gh pr review` as they don't support true inline comments 
 on specific lines.
 
+## Additional Comment Properties for Code Block Highlighting
+
+Use code block highlighting (multi-line) instead of single-line comments when possible for better context and clearer
+feedback:
+- **`line`** (integer): The line number in the new version of the file where the comment should appear
+- **`side`** (string): Which side of the diff to comment on (`"RIGHT"` for the current PR code, `"LEFT"` for the original code)
+- **`start_line`** (integer): For multi-line comments, the starting line number (preferred approach)
+- **`start_side`** (string): For multi-line comments, which side of the diff the start_line refers to (`"RIGHT"` or `"LEFT"`)
+
 **Creating Multiple Inline Comments with GitHub API**
 
 ```bash
@@ -80,16 +89,22 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
     --arg c2 "$comment2" \
     '{
       event: "COMMENT",
-      body: "Code review feedback",
+      body: "",
       comments: [
         {
           path: "src/main/kotlin/File1.kt",
-          line: 15,
+          line: 18,
+          start_line: 15,
+          side: "RIGHT",
+          start_side: "RIGHT",
           body: $c1
         },
         {
           path: "src/main/kotlin/File2.kt",
-          line: 42,
+          line: 45,
+          start_line: 42,
+          side: "RIGHT",
+          start_side: "RIGHT",
           body: $c2
         }
       ]
@@ -100,11 +115,17 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
 - `"path"`: Must be relative path from repo root (exactly as shown in `gh pr diff`)
 - `"line"`: Must be line number from the NEW version of the file
 - `"body"`: Your detailed feedback with quotes and suggestions (max 65,536 characters)
-- `"event"`: Use `"COMMENT"` for feedback (default), `"REQUEST_CHANGES"` if blocking issues found
-- Always include `"body"` field at review level (even if just "Code review complete")
-- **Character Limit**: Each comment body is limited to 65,536 characters by GitHub API
+- Always include `"body"` field at review level (even if just "")
 
-**API Format for Each Issue:**
+**Character Escaping in Comment Bodies:**
+When using `jq` with `--arg`, most special characters are handled automatically in the variable content:
+- Double quotes `"` - handled automatically by `--arg`
+- Single quotes `'` - handled automatically by `--arg`
+- Dollar signs `$` - handled automatically by `--arg`
+- Backticks `` ` `` - handled automatically by `--arg`
+- Most special characters - handled automatically by `--arg`
+
+**API Format for Single Line (use only when code block highlighting isn't applicable):**
 ```json
 {
   "path": "relative/path/to/file.kt",

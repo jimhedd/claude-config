@@ -1,12 +1,25 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew:*)",
+      "Bash(../../gradlew:*)",
+      "Bash(*:/tmp/*)",
+      "Bash(git*)"
+    ],
+    "deny": []
+  },
   "hooks": {
     "Notification": [
       {
-        "matcher": "*",
+	"matcher": "permission_prompt|elicitation_dialog|idle_prompt",
         "hooks": [
           {
             "type": "command",
             "command": "terminal-notifier -title 'Claude Code' -message 'Awaiting your input' -sound Sosumi"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/ntfy-notify.sh 'Awaiting your input'"
           }
         ]
       }
@@ -18,9 +31,24 @@
           {
             "type": "command",
             "command": "terminal-notifier -title 'Claude Code' -message '✨ Task Complete' -sound Glass"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/ntfy-notify.sh '✨ Task Complete'"
           }
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bun x ccusage statusline"
+  },
+  "enabledPlugins": {
+    "ralph-wiggum@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "mcpServers": {
+  },
+  "model": "opus"
 }

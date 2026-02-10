@@ -18,7 +18,7 @@ This command conducts a thorough code review following professional standards wi
 1. **Argument Validation**: Verify PR number argument was provided. Check if `--auto-approve` flag is included.
 2. **Context Gathering**: Use `gh pr view <PR_NUMBER>` to understand PR context, description, and purpose
 3. **Branch Checkout**: Use `gh pr checkout <PR_NUMBER>` to checkout the PR branch locally
-4. **File Analysis**: Use `gh pr diff <PR_NUMBER>` and examine actual changed files using Read tool
+4. **File Analysis**: Use `gh pr diff <PR_NUMBER>` to see all changes in the PR
 5. **Comprehensive Review**: Follow detailed review methodology below
 6. **Submit Line Comments**: Use GitHub API to create inline comments on specific code lines
 
@@ -27,8 +27,15 @@ This command conducts a thorough code review following professional standards wi
 **CRITICAL**: Use GitHub API via `gh api` for ALL inline feedback.
 
 ### Review Analysis Steps
-1. **Read all changed files completely** using Read tool for full context
-2. **Identify specific issues** on exact lines that need feedback
+1. **Analyze diff output**: 
+  - Use `gh pr diff` to see what changed (- removed, + added)
+  - Lines with `-` prefix are OLD code being removed
+  - Lines with `+` prefix are NEW code being added
+  - Focus on the NEW code (`+` lines) for potential issues
+2. **Gather additional context**:
+  - Read more of the changed files beyond the diff alone to understand additional details
+  - If necessary, read associated files for more comprehensive context
+2. **Analyze each change carefully** - understand what was changed and why
 3. **Submit inline comments** using GitHub API with proper JSON structure
 
 ### What to Review (Via Inline Comments Only)

@@ -29,3 +29,14 @@ projects/
 
 # DevBox temporary files
 .devbox
+
+.credentials.json
+changelog.md
+stats-cache.json
+history.jsonl
+debug/
+file-history/
+paste-cache/
+plans/
+tasks/
+plugins/

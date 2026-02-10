@@ -1,11 +1,11 @@
 ---
-allowed-tools: Bash(npx ccusage@latest)
+allowed-tools: Bash(~/.devbox/ai/claude/bun x --bun ccusage@latest 2>/dev/null), Bash(cd ~/.devbox/ai/claude && bun x --bun ccusage@latest 2>/dev/null)
 description: Gets cost history
 ---
 
 # Cost History
 
-Runs npx ccusage@latest and summarizes for the user.
+Runs ccusage and summarizes for the user.
 
 ## Purpose
 
@@ -13,7 +13,7 @@ This command fetches the latest Claude usage costs using the ccusage tool and pr
 
 ## Instructions
 
-1. Run `npx ccusage@latest` to fetch the latest usage data
+1. Run `Bash(~/.devbox/ai/claude/bun x --bun ccusage@latest 2>/dev/null)` to fetch the latest usage data
 2. Parse the output to extract key metrics
 3. Provide a clear summary including:
    - Total costs for recent periods
@@ -30,7 +30,7 @@ No parameters required - the command runs with default settings.
 ### Example 1: Basic Usage
 When the user says "/cost-history" you should:
 
-1. Execute `npx ccusage@latest`
+1. Execute `Bash(~/.devbox/ai/claude/bun x --bun ccusage@latest 2>/dev/null)` (after install)
 2. Analyze the returned data
 3. Summarize key findings like total spend, daily/weekly trends, and any usage patterns
 4. Present the summary in a readable format with highlights of important information

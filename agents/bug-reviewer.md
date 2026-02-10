@@ -63,6 +63,12 @@ Err on the side of caution. If something looks suspicious but you're not certain
 
 You MUST return your review in exactly this format:
 
+Hard requirements:
+- The first non-empty line must be exactly `## Review: Bug Review`.
+- Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
+- In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
+- Every evidence item must include at least one `path:line` anchor.
+
 ```
 ## Review: Bug Review
 

@@ -73,6 +73,12 @@ When uncertain whether to block, use this tiebreaker:
 
 You MUST return your review in exactly this format:
 
+Hard requirements:
+- The first non-empty line must be exactly `## Review: Test Coverage`.
+- Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
+- In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
+- Every evidence item must include at least one `path:line` anchor.
+
 ```
 ## Review: Test Coverage
 

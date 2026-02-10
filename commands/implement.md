@@ -43,6 +43,10 @@ Invoke the verification loop every time code changes and before any commit/revie
 6. Initialize persistent run artifacts:
    - Build `implement_run_id` as `<UTC timestamp>-<repo name>-<short HEAD>`
    - Set `artifacts_root=/tmp/implement-runs/{implement_run_id}`
+   - Validate `artifacts_root` before any writes:
+     - must be non-empty
+     - must be an absolute path under `/tmp/implement-runs/`
+     - if validation fails, report and **stop** (do not attempt fallback writes)
    - Create directories:
      - `{artifacts_root}/verification`
      - `{artifacts_root}/reviews`
@@ -188,12 +192,13 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
      - Preserve this manifest and treat it as the source-of-truth command set for all subsequent verification-loop parsing
      - Also print `deduped_redundant_commands` (if any) with coverage rationale for each dropped command
      - Persist the machine-readable manifest to `{artifacts_root}/verification/phase2-initial-manifest.json`
+     - Store this as `verification_manifest` for all later `RunVerificationLoop` invocations
      - Treat this manifest as immutable for the entire run:
        - do not add/remove/reorder commands in later review-loop verification passes
        - do not mutate command text/metadata outside allowed `source_command` effectiveness normalization already captured in this manifest
        - if later verification execution cannot run this manifest as-is, stop for manual intervention
 7. If no verification command could be executed, report that and **stop** (do not commit)
-8. Invoke `RunVerificationLoop(verification_commands, context_label="phase2-initial")`
+8. Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="phase2-initial")`
    - `RunVerificationLoop` is the only allowed entry point for verification orchestration in all phases; do not call `verification-coordinator` directly from Phase 2/3 flow
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop** (do not commit)
    - If return is `ERROR`, report and **stop** for manual intervention
@@ -438,7 +443,6 @@ Set iteration = 0, max_iterations = 5.
 5. Wait for all 4 reviewers to complete
    - Create the iteration directory first (`{artifacts_root}/reviews/iteration-{iteration}`)
    - Persist each reviewer raw output verbatim from Task output to `{artifacts_root}/reviews/iteration-{iteration}/<reviewer>-attempt-1.md` (do not synthesize or rewrite content)
-   - Persist each reviewer raw output to `{artifacts_root}/reviews/iteration-{iteration}/<reviewer>-attempt-1.md`
    - Invoke `AuditRunArtifacts(required_paths)` for:
      - `{artifacts_root}/reviews/iteration-{iteration}/code-quality-reviewer-attempt-1.md`
      - `{artifacts_root}/reviews/iteration-{iteration}/architecture-reviewer-attempt-1.md`
@@ -484,7 +488,7 @@ Set iteration = 0, max_iterations = 5.
      - Apply only clear, low-risk, behavior-preserving improvements (for example comments/docs accuracy, private symbol visibility, tiny local refactors, test readability)
      - Do not run automatic polish for public/external API renames without explicit user approval
      - Do not change intended behavior/spec in polish pass
-     - Invoke `RunVerificationLoop(verification_commands, context_label="review-polish-{iteration}")`
+     - Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="review-polish-{iteration}")`
      - If return is `PASS`, invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
        - If assertion validation returns `FAIL` or `ERROR`, report and **stop**
      - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
@@ -506,7 +510,7 @@ Set iteration = 0, max_iterations = 5.
    - For any remediation that changes functional behavior (validation/parsing/grouping/mapping/error handling), add or update an automated regression test in the same iteration
    - Prefer writing the regression test before the code fix; at minimum, ensure the new test would fail before the fix and pass after the fix
    - If a regression test is not feasible, document the reason in the remediation commit message
-   - Invoke `RunVerificationLoop(verification_commands, context_label="review-iteration-{iteration}")`
+   - Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="review-iteration-{iteration}")`
    - If return is `PASS`, invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
      - If assertion validation returns `FAIL` or `ERROR`, report and **stop**
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
@@ -553,6 +557,7 @@ Set iteration = 0, max_iterations = 5.
 | No plan selected | Report "No plan selected." and stop |
 | Not in git repo | Report the error and stop |
 | Working tree is not clean | Report dirty files and stop |
+| `artifacts_root` fails validation (empty/non-absolute/outside `/tmp/implement-runs/`) | Report and stop |
 | No changes after coding phase | Report "No changes produced" and stop |
 | Verification loop reaches max attempts | Report compact failure summary + log paths and stop |
 | No verification command could be executed | Report that verification could not be executed and stop |

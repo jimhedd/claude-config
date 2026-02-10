@@ -92,6 +92,9 @@ If the caller provides natural-language instructions that conflict with command 
 - `overall_status=ERROR` when command-manifest fidelity checks fail (missing/extra/mutated command entries)
 - `overall_status=ERROR` when drain reconciliation fails (`workers_completed != workers_spawned` or `workers_inflight != 0`)
 - If any worker is still running/unknown, treat as coordinator `ERROR` (not `PASS`/`FAIL`)
+- `overall_status` MUST be exactly one of `PASS` | `FAIL` | `ERROR` (never invent alternate variants)
+- Each result `status` MUST be exactly one of `PASS` | `FAIL` | `ERROR`
+- Do not emit synthetic status variants such as `PASS_WITH_PREEXISTING_FAILURE` or `FAIL_PREEXISTING`; keep canonical status and explain context in `short_failure_digest`
 - `next_action`:
   - `proceed` when `overall_status=PASS`
   - `fix_and_rerun` when `overall_status=FAIL`
@@ -156,3 +159,4 @@ Return exactly this structure:
 - `workers_inflight` must be `0` in terminal output.
 - For `must_be_effective=true` commands, include `gate_effective`, `tests_executed`, and `ineffective_reason` in result entries.
 - Include `pipefail_enabled` and `contains_pipeline` for every result entry.
+- Do not include undocumented top-level fields or undocumented status enums.

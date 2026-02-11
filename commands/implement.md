@@ -215,7 +215,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
    - Then invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
      - If return is `PASS`, continue
      - If return is `FAIL` or `ERROR`, report compact assertion failure summary and **stop**
-   - Then invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}..HEAD")`:
+   - Then invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
      - Persist outputs to:
        - `{artifacts_root}/verification/phase2-plan-conformance.json`
        - `{artifacts_root}/verification/phase2-plan-conformance.md`
@@ -374,7 +374,9 @@ Inputs:
 
 - `plan_contents`
 - `repo_root`
-- `diff_range` (typically `{base_hash}..HEAD`)
+- `diff_range`:
+  - use `{base_hash}` for pre-commit validation (compares working tree/index against base)
+  - use `{base_hash}..HEAD` for committed-range validation when needed
 
 Algorithm:
 
@@ -472,6 +474,14 @@ Set iteration = 0, max_iterations = 5.
      - `Files reviewed:` with at least one repo-relative file path from the reviewed range (bare filenames are invalid)
      - at least two `Evidence N:` entries that include concrete `path:line` anchors
      - at least one `Evidence N:` entry anchored to a line that changed in `{base_hash}..HEAD`
+   - Treat REQUEST_CHANGES output as unparseable unless every `#### Issue N:` block contains:
+     - `**File**` with a repo-relative path
+     - `**Line(s)**`
+     - `**Severity**` (`high | medium | low`)
+     - `**Category**`
+     - `**Problem**`
+     - `**Suggestion**`
+   - Treat reviewer output as unparseable when it uses synthetic placeholders instead of concrete evidence/issues (for example phrases like `Full evidence provided`, `details omitted`, or equivalent summary-only stubs)
    - Treat output as unparseable if issue/nitpick/recommendation file references are not repo-relative paths
    - Detect whether contract shifts are present in `{base_hash}..HEAD` (for example: changed function signatures, moved validation/filtering responsibility, changed preconditions, or caller/callee contract shifts)
    - If contract shifts are present, treat `architecture-reviewer` APPROVE as unparseable unless it includes `#### Caller Impact` with:
@@ -499,6 +509,12 @@ Set iteration = 0, max_iterations = 5.
      - Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="review-polish-{iteration}")`
      - If return is `PASS`, invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
        - If assertion validation returns `FAIL` or `ERROR`, report and **stop**
+     - Invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
+       - Persist outputs to:
+         - `{artifacts_root}/verification/review-polish-{iteration}-plan-conformance.json`
+         - `{artifacts_root}/verification/review-polish-{iteration}-plan-conformance.md`
+       - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
+       - If return is `FAIL` or `ERROR`, stop and report unmet requirement ids/anchors (do not auto-continue polish)
      - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
      - If return is `ERROR`, report and **stop** for manual intervention
      - Stage changed files with `git -C {repo_root} add <specific files>` (never `git add -A` / `git add .`)
@@ -518,9 +534,18 @@ Set iteration = 0, max_iterations = 5.
    - For any remediation that changes functional behavior (validation/parsing/grouping/mapping/error handling), add or update an automated regression test in the same iteration
    - Prefer writing the regression test before the code fix; at minimum, ensure the new test would fail before the fix and pass after the fix
    - If a regression test is not feasible, document the reason in the remediation commit message
+   - If a proposed remediation would violate explicit plan invariants (including `Not changed` or explicitly out-of-scope sections), do not auto-apply that remediation:
+     - report the conflicting reviewer issue and plan clause
+     - request explicit user approval to expand scope; if not approved, keep scope unchanged and continue triage
    - Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="review-iteration-{iteration}")`
    - If return is `PASS`, invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
      - If assertion validation returns `FAIL` or `ERROR`, report and **stop**
+   - Invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
+     - Persist outputs to:
+       - `{artifacts_root}/verification/review-iteration-{iteration}-plan-conformance.json`
+       - `{artifacts_root}/verification/review-iteration-{iteration}-plan-conformance.md`
+     - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
+     - If return is `FAIL` or `ERROR`, stop and report unmet requirement ids/anchors before committing remediation changes
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
    - If return is `ERROR`, report and **stop** for manual intervention
    - Stage the changed files with `git -C {repo_root} add <specific files>` — NEVER use `git add -A` or `git add .`
@@ -589,6 +614,10 @@ Set iteration = 0, max_iterations = 5.
 | Plan non-command verification assertion check fails | Report assertion failure and stop |
 | Plan conformance checklist has unmapped explicit requirement(s) | Stop and report unmet requirement ids/anchors |
 | Plan conformance returns `FAIL`/`ERROR` and flow attempts to continue | Stop and report policy violation for manual intervention |
+| Review/polish remediation changes fail plan conformance against `{base_hash}` | Stop and report unmet requirement ids/anchors before commit |
+| Reviewer output contains placeholder/synthetic stubs (for example `Full evidence provided`) | Re-run reviewer once; if repeated, stop for manual intervention |
+| REQUEST_CHANGES output missing required issue fields (`File`, `Line(s)`, `Severity`, `Category`, `Problem`, `Suggestion`) | Re-run reviewer once; if repeated, stop for manual intervention |
+| Proposed remediation contradicts explicit plan invariants/out-of-scope clauses | Ask user for explicit scope-expansion approval; if not approved, keep scope unchanged |
 | Empty staged diff | Report "Nothing staged" and stop |
 | Commit body missing/trivial | Report and stop for manual intervention |
 | Commit contains forbidden trailer (`Co-Authored-By` / `Generated with Claude Code`) | Stop and report exact trailer lines for manual intervention |
@@ -615,6 +644,7 @@ Set iteration = 0, max_iterations = 5.
 - Always run verification via `verification-coordinator` (which delegates to `verification-worker`) rather than running raw verification commands directly in the orchestrator
 - Never invoke `verification-coordinator` directly from Phase 2/3 flow; always go through `RunVerificationLoop`
 - Never run required verification gates with output-truncating wrappers (`| tail`, `| head`, `| sed -n`, pagers) or `/dev/null` sinks
+- Never treat timed-out or non-zero helper commands (formatters/generators/scripts used during remediation) as success; resolve or stop before proceeding
 - Never proceed on non-terminal/backgrounded verification output; always wait for terminal coordinator JSON, `workers_inflight=0`, and `workers_completed==workers_spawned`
 - Never substitute, bypass, or drop explicit plan-specified verification commands without explicit user approval, except exact duplicate removal after normalization and approved effectiveness-enforcement flags for required test gates
 - Treat the phase2 verification manifest as immutable for the rest of the run (same command ids/order/text/metadata)

@@ -74,6 +74,9 @@ Hard requirements:
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
 - If contract shifts are present, include `#### Caller Impact` and follow the required fields below.
+- Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
+- For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
+  - `**File**`, `**Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
 ```
 ## Review: Architecture

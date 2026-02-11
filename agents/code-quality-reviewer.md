@@ -68,6 +68,9 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
+- Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
+- For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
+  - `**File**`, `**Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
 ```
 ## Review: Code Quality

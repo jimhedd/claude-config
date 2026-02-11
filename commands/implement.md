@@ -430,6 +430,11 @@ Set iteration = 0, max_iterations = 5.
    - At least two `Evidence N:` bullets with concrete checks anchored to `path:line`
    - At least one `Evidence N:` bullet anchored to a line added/modified in `{base_hash}..HEAD`, with a risk-specific rationale (not a generic style observation)
    If newly introduced or renamed callable symbols are present in the diff, code-quality and architecture reviews must include at least one explicit naming/API clarity evidence item for those symbols.
+   If function signatures, caller/callee responsibilities, validation boundaries, side effects, or other contracts changed, the architecture reviewer must include a `#### Caller Impact` section with:
+   - `Changed callable:` item(s) anchored to callable declaration/definition `path:line`
+   - and either:
+     - `Caller evidence N:` item(s) anchored to caller site `path:line` with compatibility assessment, or
+     - explicit `No in-repo callers found` justification (only when true).
    For any blocking bug/correctness issue, explicitly include the overlooked edge case and the regression test that should cover it.
    Explicitly flag any test-dilution pattern (removed assertions, weaker checks, drift allowlists, ignored fields/cases) as REQUEST_CHANGES unless behavior/spec changed and is documented.
    If function signatures, caller/callee responsibilities, validation boundaries, or other contracts changed, the test reviewer must either:
@@ -469,6 +474,9 @@ Set iteration = 0, max_iterations = 5.
      - at least one `Evidence N:` entry anchored to a line that changed in `{base_hash}..HEAD`
    - Treat output as unparseable if issue/nitpick/recommendation file references are not repo-relative paths
    - Detect whether contract shifts are present in `{base_hash}..HEAD` (for example: changed function signatures, moved validation/filtering responsibility, changed preconditions, or caller/callee contract shifts)
+   - If contract shifts are present, treat `architecture-reviewer` APPROVE as unparseable unless it includes `#### Caller Impact` with:
+     - at least one `Changed callable:` evidence anchor (`path:line`), and
+     - either at least one `Caller evidence N:` caller-site anchor (`path:line`) with compatibility rationale, or explicit `No in-repo callers found` justification
    - If contract shifts are present, treat `test-reviewer` APPROVE as unparseable unless at least one evidence item cites an existing covering test with `path:line` and test name
    - If it still fails/unparseable after retry, report "Reviewer <name> failed twice; stopping for manual intervention." and **stop**
 
@@ -586,6 +594,7 @@ Set iteration = 0, max_iterations = 5.
 | Commit contains forbidden trailer (`Co-Authored-By` / `Generated with Claude Code`) | Stop and report exact trailer lines for manual intervention |
 | APPROVE verdict missing required evidence section/anchors | Re-run that reviewer once; if still invalid, stop for manual intervention |
 | Reviewer output uses bare filenames instead of repo-relative paths in evidence/issues | Re-run that reviewer once; if still invalid, stop for manual intervention |
+| Contract-shift detected but architecture-reviewer APPROVE lacks `Caller Impact` evidence | Re-run architecture-reviewer once; if still invalid, stop for manual intervention |
 | Contract-shift detected but test-reviewer APPROVE lacks explicit test coverage citations | Re-run test-reviewer once; if still invalid, stop for manual intervention |
 | Optional polish pass verification fails | Report compact failure summary + log paths and stop |
 | Max iterations reached | Leave commits as-is (not squashed), report all remaining unresolved issues |
@@ -619,6 +628,7 @@ Set iteration = 0, max_iterations = 5.
 - Audit required artifact paths after each persistence step; missing artifacts are hard failures
 - Never accept evidence-free APPROVE verdicts from reviewers
 - Never accept reviewer evidence that only uses bare filenames; require repo-relative paths
+- For contract-shift changes, require architecture-reviewer approvals to include `Caller Impact` evidence (`Changed callable` + caller compatibility evidence, or explicit `No in-repo callers found` when true)
 - For contract-shift changes, require test-reviewer approvals to cite existing covering tests (`path:line` + test name) or block with REQUEST_CHANGES
 - Before committing, ensure explicit plan requirements are mapped to concrete implementation/test anchors via the conformance checklist
 - If conformance returns `FAIL`/`ERROR`, stop; do not override by narrative judgement

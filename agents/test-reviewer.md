@@ -20,6 +20,7 @@ Do not accept vague justifications ("too simple to test", "will add tests later"
 ## Review Scope
 
 Evaluate only the commit range provided by the orchestrator prompt (typically `git diff {base_hash}..HEAD`), not unrelated workspace changes.
+Only raise blocking issues that can be anchored to changed lines in that diff range.
 
 ## Review Focus
 
@@ -51,6 +52,13 @@ Evaluate the changed code for:
 8. Assess whether the new code has adequate test coverage
 9. For newly added/updated tests, verify fixture distinctness and assertion strength; if the same test would pass with fallback/default values, treat it as inadequate
 
+## Concision Requirements
+
+- Keep output compact and high signal: target <= 140 lines.
+- For APPROVE: provide exactly 2-3 evidence bullets.
+- For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
+- Keep recommendations short and actionable; avoid long narrative justification.
+
 ## Decision Rules
 
 - **APPROVE**: Test coverage is adequate for the risk level of the changes. Missing tests for low-risk or behavior-preserving edits can be non-blocking.
@@ -61,6 +69,7 @@ Evaluate the changed code for:
 - **REQUEST_CHANGES**: Grouping/dedup/index-remap/row-mapping behavior changed without explicit tests that validate ordering and row/result mapping invariants.
 - **REQUEST_CHANGES**: Tests for preservation/passthrough behavior use indistinguishable default fixtures or weak assertions that cannot prove the intended value path.
 - Never return APPROVE without concrete evidence anchored to `path:line`.
+- If a concern cannot be tied to a changed line in the reviewed diff range, keep it non-blocking.
 
 If the project has little/no testing infrastructure:
 - **REQUEST_CHANGES** for medium/high-risk behavioral changes and recommend a minimal test harness or narrow integration test.
@@ -78,9 +87,10 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
+- Keep the response concise (target <= 140 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
 ```
 ## Review: Test Coverage
@@ -126,6 +136,7 @@ OR
 #### Issue 1: [Title]
 - **File**: path/to/file.ext
 - **Line(s)**: 42-48
+- **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
 - **Category**: missing-test | edge-case | test-quality | assertions | regression-integrity | test-structure | rename-consistency | contract-shift | ordering-mapping
 - **Problem**: <description of the issue>

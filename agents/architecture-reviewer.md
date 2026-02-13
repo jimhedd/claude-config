@@ -20,6 +20,7 @@ Trace how changed code fits into the larger system. Do not limit your review to 
 ## Review Scope
 
 Evaluate only the commit range provided by the orchestrator prompt (typically `git diff {base_hash}..HEAD`), not unrelated workspace changes.
+Only raise blocking issues that can be anchored to changed lines in that diff range.
 
 ## Review Focus
 
@@ -44,6 +45,13 @@ Evaluate the changed code for:
 6. If callable symbols are newly introduced/renamed, explicitly assess whether naming matches architectural responsibility and side-effect contract
 7. If callable contracts shift (signature, side effects, pre/postconditions, validation ownership, or error semantics), trace direct callers and confirm compatibility at call sites; escalate when downstream behavior can regress
 
+## Concision Requirements
+
+- Keep output compact and high signal: target <= 140 lines.
+- For APPROVE: provide exactly 2-3 evidence bullets (plus required caller-impact section when applicable).
+- For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
+- Keep each issue/problem statement concise and avoid long architectural essays.
+
 ## Decision Rules
 
 - **APPROVE**: No issues at low severity or above. Nitpick-only findings still get APPROVE (list nitpicks in the body).
@@ -54,6 +62,7 @@ Evaluate the changed code for:
 - If contract-shift changes exist, APPROVE must include `#### Caller Impact` with:
   - `Changed callable:` evidence anchored to the declaration/definition `path:line`
   - and either at least one caller-site compatibility evidence anchor (`path:line`) or explicit `No in-repo callers found` justification
+- If a concern cannot be tied to a changed line in the reviewed diff range, keep it non-blocking.
 
 ### Severity Guide
 
@@ -73,10 +82,11 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
+- Keep the response concise (target <= 140 lines).
 - If contract shifts are present, include `#### Caller Impact` and follow the required fields below.
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
 ```
 ## Review: Architecture
@@ -124,6 +134,7 @@ OR (request changes):
 #### Issue 1: [Title]
 - **File**: path/to/file.ext
 - **Line(s)**: 42-48
+- **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
 - **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture
 - **Problem**: <description of the issue>

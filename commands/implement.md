@@ -28,6 +28,20 @@ Invoke the verification loop every time code changes and before any commit/revie
 - After initial implementation in Phase 2
 - After reviewer-driven fixes in Phase 3
 
+## Context Budget And State Policy
+
+To protect long runs from context-window compaction and stale async events:
+
+- Keep orchestrator narrative compact and artifact-first: summarize with ids/status/paths, never paste large logs or full reviewer prose into the main thread.
+- Treat persisted artifacts under `{artifacts_root}` as authoritative state, not transient background task messages.
+- Persist compact state checkpoints after each phase and review iteration; resume decisions from checkpoints when context compaction occurs.
+- Never re-hydrate full `{plan_contents}` into every reviewer prompt after Phase 1; use a compact digest + iteration prompt pack.
+- Run in transcript quiet mode by default:
+  - For `Write`/`Edit`/`Update`, report only artifact path + brief status (`created/updated`, bytes/line delta).
+  - For `Read`, do not inline full file bodies unless required for a failing gate/parsing decision.
+  - For `Bash`, print compact outcome summaries; persist full outputs to artifact log files and reference paths.
+  - If any inline excerpt is necessary, cap to <= 20 lines and include why the excerpt is required.
+
 ## Phase 0: Preflight Safety
 
 1. Verify you are inside a git repository (`git rev-parse --is-inside-work-tree`)
@@ -51,8 +65,16 @@ Invoke the verification loop every time code changes and before any commit/revie
      - `{artifacts_root}/verification`
      - `{artifacts_root}/reviews`
      - `{artifacts_root}/commits`
+     - `{artifacts_root}/state`
    - Write `{artifacts_root}/run_context.json` with at least:
      - `implement_run_id`, `repo_root`, `branch`, `jira_ticket`, `started_at_utc`
+   - Write `{artifacts_root}/state/run-state.json` with at least:
+     - `run_state="PHASE0_INITIALIZED"`
+     - `state_epoch=0`
+     - `review_iteration=0`
+     - `finalized=false`
+     - `authoritative_review_iteration=null`
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="phase0-initialized", phase="phase0", summary={"repo_root": repo_root, "branch": branch})`
 
 ## Phase 1: Load Plan
 
@@ -91,11 +113,18 @@ Invoke the verification loop every time code changes and before any commit/revie
    - default is `auto`
    - `auto` means: after all reviewers approve, squash to one commit only when there are multiple commits since `base_hash`
 
-6. Display the selected plan contents and resolved `squash_mode`, then proceed directly to coding
+6. Display only a compact plan preview (path + key requirement ids + resolved `squash_mode`), then proceed directly to coding
    - Selecting the plan (path argument or AskUserQuestion choice) is the confirmation to execute
    - Persist `plan_path`, `squash_mode`, and `{plan_contents}` to:
      - `{artifacts_root}/run_context.json` (update existing JSON)
      - `{artifacts_root}/plan.md`
+   - Build and persist a compact `plan_review_digest` for reviewer prompts:
+     - include only objective, explicit invariants/constraints, explicit out-of-scope clauses, and required verification gates
+     - omit implementation detail prose and long examples
+     - target <= 120 lines and <= 8KB
+     - persist to `{artifacts_root}/plan-review-digest.md`
+   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/plan-review-digest.md"])`; on `ERROR`, stop for manual intervention
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="phase1-plan-loaded", phase="phase1", summary={"plan_path": plan_path, "squash_mode": squash_mode, "plan_review_digest_path": "{artifacts_root}/plan-review-digest.md"})`
 
 Store the plan file contents in a variable referred to as `{plan_contents}` for later phases.
 
@@ -147,15 +176,10 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
    - If none are specified, auto-detect and include at least one meaningful gate:
      - tests first (preferred)
      - otherwise typecheck/lint/build
-   - Optional fast pre-test compile gate for JVM/Kotlin projects:
-     - If toolchain is Gradle/Maven + JVM/Kotlin and at least one required `test` gate exists, add one lightweight non-mutating compile/typecheck pre-gate before required tests
-     - Prefer module-scoped `compileKotlin`; fallback to `compileJava` or `classes` (Gradle), or `-DskipTests compile` (Maven)
-     - Set this pre-gate metadata as:
-       - `gate_type=typecheck` (or `build` when only `classes/compile` is available)
-       - `required=false` unless plan explicitly marks it required
-       - `mutates_workspace=false`
-       - `parallel_safe=false`
-     - Schedule this pre-gate in the earliest read-only stage, before required test gates
+   - Context-protection default for optional pre-test compile gates:
+     - Do **not** auto-add compile/typecheck pre-gates by default (to avoid extra verification worker calls and token cost).
+     - Add a pre-gate only when explicitly required by `{plan_contents}` or when the immediately previous verification attempt failed due to compile/setup prerequisites.
+     - If added, mark it `required=false`, run it once before required test gates, and do not duplicate a signal already covered by a required gate.
    - Auto-added mutating commands policy:
      - prefer non-mutating verification commands first
      - add mutating commands (formatters/auto-fixers/code generators) only when explicitly required by `{plan_contents}` or when they are the only viable way to produce a meaningful verification gate
@@ -184,32 +208,49 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
      - Stage `0`: all `mutates_workspace=true` commands (serial)
      - Stage `1`: all read-only verification gates (`mutates_workspace=false`) with `parallel_safe=true` when safe
      - If a read-only command is placed in stage `0` without an explicit dependency reason, normalize it to stage `1`
-     - If optional JVM/Kotlin pre-test compile gate exists, place it in the earliest read-only stage and shift required test gates to the next read-only stage
+     - If an explicit pre-test compile gate exists, place it in the earliest read-only stage and shift required test gates to the next read-only stage
      - If plan includes both targeted and aggregate read-only gates, schedule targeted gates in the earliest read-only stage and aggregate gates in the latest read-only stage
    - If all commands are mutating or non-parallel-safe, expect serial execution and do not force parallelism
    - Emit a deterministic `verification_manifest` before execution (for auditability):
-     - Print one line per command with: `id`, `stage`, `gate_type`, `required`, `must_be_effective`, `parallel_safe`, `mutates_workspace`, `command`, `source_command` (when different)
+     - Print only compact command metadata: `id`, `stage`, `gate_type`, `required`, `must_be_effective` (do not print full command text inline)
      - Preserve this manifest and treat it as the source-of-truth command set for all subsequent verification-loop parsing
-     - Also print `deduped_redundant_commands` (if any) with coverage rationale for each dropped command
+     - If `deduped_redundant_commands` is non-empty, print only count + artifact path (no inline rationale prose)
      - Persist the machine-readable manifest to `{artifacts_root}/verification/phase2-initial-manifest.json`
      - Store this as `verification_manifest` for all later `RunVerificationLoop` invocations
      - Treat this manifest as immutable for the entire run:
        - do not add/remove/reorder commands in later review-loop verification passes
        - do not mutate command text/metadata outside allowed `source_command` effectiveness normalization already captured in this manifest
-       - if later verification execution cannot run this manifest as-is, stop for manual intervention
-7. If no verification command could be executed, report that and **stop** (do not commit)
-8. Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="phase2-initial")`
+     - if later verification execution cannot run this manifest as-is, stop for manual intervention
+7. Build and execute auditable setup commands before verification:
+   - Build `setup_commands` list for environment prerequisites required by this run (for example auth/bootstrap commands such as docker login).
+   - Sources for setup detection:
+     - explicit plan prerequisites in `{plan_contents}`
+     - repo-local AGENTS/README execution prerequisites in scope
+     - deterministic toolchain prerequisites required by selected verification gates
+   - Persist setup manifest to `{artifacts_root}/verification/phase2-setup-manifest.json` with:
+     - `commands`: ordered list of `{id, command, required, timeout_seconds}`
+     - `source_notes` for each command
+   - Execute setup commands serially in manifest order before `RunVerificationLoop`:
+     - execute from `repo_root`
+     - capture full stdout/stderr to `{artifacts_root}/verification/phase2-setup-<id>.log`
+     - record compact per-command status in setup summary
+   - Persist setup summary to `{artifacts_root}/verification/phase2-setup-summary.json` with:
+     - `overall_status`
+     - `commands_total`
+     - per-command `{id, status, exit_code, duration_ms, log_path}`
+   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/verification/phase2-setup-manifest.json", "{artifacts_root}/verification/phase2-setup-summary.json"])`; on `ERROR`, stop for manual intervention
+   - If any `required=true` setup command fails or errors, stop and report manual intervention needed (do not continue to verification)
+8. If no verification command could be executed, report that and **stop** (do not commit)
+9. Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="phase2-initial")`
    - `RunVerificationLoop` is the only allowed entry point for verification orchestration in all phases; do not call `verification-coordinator` directly from Phase 2/3 flow
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop** (do not commit)
    - If return is `ERROR`, report and **stop** for manual intervention
-   - If return is `PASS`, display a compact per-command verification table (`id`, `status`, `attempts`, `gate_effective`, `tests_executed`, `log_path`)
+   - If return is `PASS`, print only a one-line verification status summary plus artifact path(s) (no inline per-command table in transcript)
    - If return has any other status/value, treat it as protocol violation and **stop** for manual intervention
-   - Persist latest verification summary JSON + table rows to:
+   - Persist latest verification summary JSON to:
      - `{artifacts_root}/verification/phase2-initial-summary.json`
-     - `{artifacts_root}/verification/phase2-initial-summary.md`
    - Invoke `AuditRunArtifacts(required_paths)` for:
      - `{artifacts_root}/verification/phase2-initial-summary.json`
-     - `{artifacts_root}/verification/phase2-initial-summary.md`
      - `{artifacts_root}/verification/phase2-initial-manifest.json`
      - If return is `ERROR`, report missing artifact paths and **stop**
    - Then invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
@@ -218,13 +259,13 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
    - Then invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
      - Persist outputs to:
        - `{artifacts_root}/verification/phase2-plan-conformance.json`
-       - `{artifacts_root}/verification/phase2-plan-conformance.md`
      - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
      - If return is `FAIL` or `ERROR`, report compact unmet-requirements summary and **stop**
    - Never reinterpret verification or conformance failures as effective pass (for example “pre-existing/out-of-scope but proceed anyway”); fail closed and stop
-9. Stage the relevant files with `git -C {repo_root} add <specific files>` — NEVER use `git add -A` or `git add .`
-10. If staged diff is empty, report "Nothing staged" and **stop**
-11. Create a commit with a detailed message:
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="phase2-verified", phase="phase2", summary={"setup_summary": "{artifacts_root}/verification/phase2-setup-summary.json", "verification_summary": "{artifacts_root}/verification/phase2-initial-summary.json", "conformance_summary": "{artifacts_root}/verification/phase2-plan-conformance.json"})`
+10. Stage the relevant files with `git -C {repo_root} add <specific files>` — NEVER use `git add -A` or `git add .`
+11. If staged diff is empty, report "Nothing staged" and **stop**
+12. Create a commit with a detailed message:
    - **Subject line**:
      - If `{jira_ticket}` is present: JIRA ticket prefix followed by conventional commit format (e.g. `CAT-000 feat(scope): description`)
      - If `{jira_ticket}` is empty: use conventional commit format only (do not invent a ticket)
@@ -232,7 +273,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
    - Build commit message explicitly as subject + body (for example via separate `-m` flags) so the body cannot be omitted accidentally
    - Body must contain concrete "what/why/how" details; minimum 3 non-empty lines
    - No Co-Authored-By tags or "Generated with Claude Code" signatures
-12. Validate commit message completeness:
+13. Validate commit message completeness:
    - Run `git -C {repo_root} log -1 --pretty=%B`
    - If the commit body is missing or trivial, report and **stop** for manual intervention before entering review loop
    - Enforce forbidden commit trailers:
@@ -242,6 +283,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
      - If found, report the exact trailer lines and **stop** for manual intervention
    - Persist the created commit metadata to `{artifacts_root}/commits/phase2-initial-commit.json` (`hash`, `subject`, `body`)
    - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/commits/phase2-initial-commit.json"])`; on `ERROR`, stop for manual intervention
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="phase2-committed", phase="phase2", summary={"commit_metadata": "{artifacts_root}/commits/phase2-initial-commit.json", "base_hash": base_hash})`
 
 ## Shared Procedure: RunVerificationLoop
 
@@ -263,74 +305,41 @@ Algorithm:
 
 1. Set `verification_fix_attempt = 0` and `max_verification_fix_attempts = 3`
 2. Enforce immutable command set before execution:
-   - validate `verification_commands` exactly matches `verification_manifest.commands` for all entries by:
-     - same list length and order
-     - same `id`, `command`, `stage`, `gate_type`, `required`, `must_be_effective`, `parallel_safe`, `mutates_workspace`
-   - if any mismatch is detected, return `ERROR` (command drift/manual intervention required)
-3. Capture immutable `verification_scope_files` snapshot:
-   - tracked: `git -C {repo_root} diff --name-only`
-   - untracked: `git -C {repo_root} ls-files --others --exclude-standard`
-   - union (unique, normalized repo-relative paths)
-   - persist to `{artifacts_root}/verification/{context_label}-scope-files.txt`
-   - if the union is empty, return `ERROR` (cannot enforce in-scope boundaries)
-   - If a gate fails only on files outside this snapshot, treat as out-of-scope/pre-existing failure and return `ERROR` (manual intervention)
-4. Repeat until return:
-   - Never execute verification commands directly in the orchestrator via `Bash`; coordinator delegation is mandatory for all gates
-   - Never run ad-hoc baseline probes (for example `git stash && <verification command> | tail ...`) to reclassify failures; out-of-scope/pre-existing suspicion is an immediate `ERROR` return
-   - Invoke `Task` with `subagent_type=verification-coordinator` and wait synchronously for terminal output
-   - Provide:
-     - `cwd`: repo root
-     - `run_id`: `{context_label}-attempt-{verification_fix_attempt}`
-     - `flaky_retry_limit`: `1`
-     - `commands`: `verification_commands`
-   - Instruct coordinator to:
-     - fan out to `verification-worker` tasks
-     - execute commands by `stage` order
-     - within each stage, run `mutates_workspace=true` commands serially
-     - within each stage, run `mutates_workspace=false` and `parallel_safe=true` commands in parallel
-     - within each stage, run `mutates_workspace=false` and `parallel_safe=false` commands serially
-     - wait for all worker tasks to reach a terminal state before returning a verdict (no early return while workers are still running)
-     - return gate effectiveness metadata per command (`gate_effective`, `tests_executed`, `ineffective_reason`) and worker drain counters (`workers_spawned`, `workers_completed`, `workers_inflight`)
-     - write full command logs to files and return only compact JSON summary + log paths
-   - Persist coordinator outputs per attempt:
-     - Raw coordinator text: `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.txt`
-     - Parsed JSON summary: `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.json`
-   - Invoke `AuditRunArtifacts(required_paths)` for attempt artifacts above; if return is `ERROR`, return `ERROR`
-   - If the Task tool returns a background/stream handle instead of terminal output, keep polling task output until terminal JSON is available
-   - Require coordinator terminal output to contain exactly one `## Verification: Summary` section and one parseable JSON object
-   - Never classify verification as PASS/FAIL until terminal coordinator output is received
-   - If coordinator fails, times out, or returns unparseable output, re-run coordinator once immediately
-   - If coordinator still fails/unparseable after retry, return `ERROR`
-   - Parse coordinator output:
-     - If `overall_status` is not exactly one of `PASS`, `FAIL`, `ERROR`, treat as `ERROR`
-     - If worker drain invariants are violated (`workers_inflight > 0`, `workers_completed != workers_spawned`, missing required result entries, malformed effectiveness fields for `must_be_effective=true`, `commands_total != len(verification_commands)`, or `results.length != len(verification_commands)`), treat as `ERROR`
-     - If `command_manifest_validated != true`, treat as `ERROR`
-     - Validate command-manifest fidelity against `verification_manifest`:
-       - each input `command_id` appears exactly once in `results`
-       - each result `command` exactly matches the source manifest command string for that `command_id`
-       - no extra result entries beyond the source manifest
-       - if any mismatch is found, treat as `ERROR` (possible command substitution/drift)
-     - If any `results[*].status` is not exactly one of `PASS`, `FAIL`, `ERROR`, treat as `ERROR`
-     - If `overall_status=PASS` and any required-failure list is non-empty (`failed_required_ids` or `failed_ineffective_required_ids`), treat as `ERROR`
-     - Independently enforce required test-gate effectiveness from `results`:
-       - For each `required=true` and `gate_type=test` result, require `status=PASS`, `gate_effective=true`, and `tests_executed > 0`
-       - If any required test result violates this, treat as `ERROR` even if coordinator reported `overall_status=PASS`
-     - If any required command result is non-PASS, do not downgrade/relabel it (for example as `FAIL_PREEXISTING`) and do not continue this run; follow the `FAIL`/`ERROR` return paths below
-     - If `overall_status=PASS`, return `PASS` with `verification_results`
-     - If `overall_status=ERROR`, return `ERROR`
-     - If `overall_status=FAIL` and `verification_fix_attempt >= max_verification_fix_attempts`, return `FAIL_MAX_ATTEMPTS`
-     - If `overall_status=FAIL` and `verification_fix_attempt < max_verification_fix_attempts`:
-       - surface `short_failure_digest` + `log_path` list to the main flow
-       - do not replace or bypass explicit plan-specified verification commands during fixes
-       - do not auto-fix failures in out-of-scope files captured outside `verification_scope_files`; report manual intervention instead
-       - make focused fixes without weakening test intent:
-         - do not remove/relax assertions, skip failing cases, add ignore allowlists, or reclassify failures as non-blocking solely to make gates pass
-         - if failure indicates source-of-truth drift, prefer fixing the drift at the source; if not feasible in scope, stop and report for manual intervention
-         - if a required test gate is ineffective (`gate_effective=false`, `tests_executed=0`, or equivalent), treat as verification failure requiring manual intervention unless user explicitly approves fallback
-       - after each fix, recompute tracked+untracked union (`git diff --name-only` + `git ls-files --others --exclude-standard`);
-         if new files appear outside immutable `verification_scope_files`, return `ERROR` and report those files as out-of-scope edits
-       - increment `verification_fix_attempt` and continue loop
-5. Never proceed while any required verification command is failing
+   - `verification_commands` must exactly match `verification_manifest.commands` (length, order, ids, command text, and execution metadata).
+   - On mismatch, return `ERROR` (command drift/manual intervention).
+3. Capture immutable in-scope files and persist `{artifacts_root}/verification/{context_label}-scope-files.txt`:
+   - union of tracked (`git diff --name-only`) and untracked (`git ls-files --others --exclude-standard`) repo-relative paths.
+   - if empty, return `ERROR`.
+4. Repeat until terminal:
+   - Transcript budget per attempt: at most 4 orchestrator lines (`start`, `terminal status`, optional compact failure digest, artifact path). Do not emit invariant-by-invariant commentary.
+   - Delegate execution only via `verification-coordinator` Task (never run gates directly in orchestrator).
+   - Invoke coordinator with minimal payload only:
+     - `cwd`, `run_id={context_label}-attempt-{verification_fix_attempt}`, `flaky_retry_limit=1`, `response_mode=minimal_json`, `commands=verification_commands`
+   - Coordinator response contract for context minimization:
+     - return exactly one JSON object (no markdown, no raw logs)
+     - include only protocol fields required for gating + log paths
+   - If Task returns a stream/background handle, poll until terminal JSON.
+   - Persist parsed summary to `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.json`.
+   - Persist raw coordinator text only when JSON parsing fails, to `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.txt`.
+   - If coordinator fails/times out/unparseable, retry once; if repeated, return `ERROR`.
+   - Validate protocol invariants:
+     - canonical statuses only (`PASS|FAIL|ERROR`)
+     - `workers_inflight=0` and `workers_completed==workers_spawned`
+     - `results.length==len(verification_commands)`
+     - `command_manifest_validated=true` and `manifest_mismatches` is empty
+     - manifest fidelity: one result per `command_id`; no extras
+     - each result includes compact required fields for gating (`status`, `attempts`, `log_path`, effectiveness metadata)
+     - required test gates must have `status=PASS`, `gate_effective=true`, `tests_executed>0`
+   - Decision:
+     - `overall_status=PASS` => return `PASS` with `verification_results`
+     - `overall_status=ERROR` => return `ERROR`
+     - `overall_status=FAIL` and `verification_fix_attempt >= max_verification_fix_attempts` => `FAIL_MAX_ATTEMPTS`
+     - `overall_status=FAIL` and attempts remain:
+       - surface only compact `short_failure_digest` + log paths (<= 8 lines total)
+       - apply focused fixes without weakening test intent
+       - enforce in-scope edits only; if new out-of-scope edits appear, return `ERROR`
+       - increment attempt and continue
+5. Never proceed while required verification commands are failing.
 
 ## Shared Procedure: ValidateVerificationAssertions
 
@@ -353,7 +362,7 @@ Algorithm:
    - `PASS` when all assertions pass
    - `FAIL` when any mapped assertion fails
    - `ERROR` when assertion mapping/check execution is not reliable
-6. Always print a compact assertion summary table (`id`, `status`, `evidence`).
+6. Print only one line with aggregate assertion counts (`total/pass/fail/error`); persist detailed evidence to artifact files when needed.
 
 ## Shared Procedure: AuditRunArtifacts
 
@@ -386,13 +395,38 @@ Algorithm:
 4. If a requirement references a named file/symbol that is not present in the current tree but can be deterministically resolved from git history, allow a historical anchor (`history:<commit>:<path>:line`) plus current diff/test anchors.
 5. For behavior/correctness requirements (validation, dedup/grouping, ordering/mapping, error classification, request/response contracts), also require at least one test anchor (`path:line` + test name) in the diff range, unless infeasible reason is explicitly documented.
 6. Produce a checklist with columns: `requirement_id`, `requirement`, `impl_anchor`, `test_anchor`, `status`, `notes`.
-7. Persist checklist to:
-   - `{artifacts_root}/verification/phase2-plan-conformance.json`
-   - `{artifacts_root}/verification/phase2-plan-conformance.md`
+7. Persist checklist to `{artifacts_root}/verification/phase2-plan-conformance.json` only.
 8. If any explicit requirement is unmapped or weakly evidenced, return `FAIL`.
 9. If extraction/mapping cannot be done deterministically, return `ERROR`.
 10. Otherwise return `PASS`.
 11. Never override `FAIL`/`ERROR` by narrative judgement; checklist result is authoritative for gating.
+
+## Shared Procedure: PersistRunStateCheckpoint
+
+Inputs:
+
+- `checkpoint_name`
+- `phase`
+- `summary` (compact JSON-serializable object)
+
+Algorithm:
+
+1. Read `{artifacts_root}/state/run-state.json` if present; if missing, treat as `ERROR`.
+2. Increment `state_epoch` by 1.
+3. Write `{artifacts_root}/state/{checkpoint_name}.json` with:
+   - `state_epoch`
+   - `phase`
+   - `review_iteration` (if in Phase 3)
+   - `head_hash` (`git -C {repo_root} rev-parse HEAD` when available)
+   - compact `summary` payload
+4. Update `{artifacts_root}/state/run-state.json` to mirror latest:
+   - `run_state` (set to `summary.run_state_override` when provided; otherwise `{phase}:{checkpoint_name}`)
+   - `state_epoch`
+   - `review_iteration`
+   - `authoritative_review_iteration` when known
+   - `last_checkpoint_path`
+5. Keep checkpoint files compact (target <= 4KB) and artifact-path-driven.
+6. Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/state/run-state.json", "{artifacts_root}/state/{checkpoint_name}.json"])`; on `ERROR`, stop for manual intervention.
 
 ## Phase 3: Review Loop
 
@@ -410,15 +444,27 @@ Set iteration = 0, max_iterations = 5.
      - `changed_files > 8`
      - `changed_lines > 400`
      - high-risk signals present (auth/permissions, money/data writes, concurrency/retries, schema/proto/API contract shifts, migrations)
+3.6 Build a compact `review_prompt_pack` and persist to `{artifacts_root}/reviews/iteration-{iteration}/prompt-pack.md`:
+   - create iteration directory first: `{artifacts_root}/reviews/iteration-{iteration}`
+   - include `git -C {repo_root} diff --stat {base_hash}..HEAD`
+   - include changed file list (repo-relative, deterministic order)
+   - include unresolved blocking issues from prior iteration verdict JSON only (ids/titles/paths; no raw prose copy)
+   - include artifact pointers for latest verification/conformance summaries
+   - target <= 160 lines and <= 10KB
+   - invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/reviews/iteration-{iteration}/prompt-pack.md"])`; on `ERROR`, stop for manual intervention
 
 4. Spawn ALL 4 reviewer agents **in parallel** using the Task tool. Each Task call must:
    - Use the appropriate `subagent_type` for the reviewer
    - Include this prompt structure:
 
    ```
-   Review the git changes for the following plan:
+   Review the git changes using the compact plan digest and iteration context below.
 
-   {plan_contents}
+   Plan digest:
+   {plan_review_digest}
+
+   Iteration context:
+   {review_prompt_pack}
 
    Review depth for this iteration: `{review_depth}`.
    - If `review_depth=focused`, prioritize changed hunks plus immediate callers/callees/tests; avoid broad repo exploration unless needed to justify a finding.
@@ -443,19 +489,23 @@ Set iteration = 0, max_iterations = 5.
    - cite specific existing tests (`path:line` + test name) that cover the shifted contract, or
    - return REQUEST_CHANGES with the exact regression test to add.
    If diff changes grouping/dedup/index remap/row-mapping logic, test and bug reviewers must explicitly verify ordering and mapping invariants with `path:line` evidence.
+   Keep output compact; avoid long narrative digressions and limit findings to the highest-value actionable items.
    If concern is uncertain or preference-only, classify it as a nitpick.
    Return your verdict in the structured format specified in your agent instructions.
    ```
 
 5. Wait for all 4 reviewers to complete
    - Create the iteration directory first (`{artifacts_root}/reviews/iteration-{iteration}`)
+   - Persist reviewer task handles map to `{artifacts_root}/reviews/iteration-{iteration}/task-handles.json` before waiting
    - Persist each reviewer raw output verbatim from Task output to `{artifacts_root}/reviews/iteration-{iteration}/<reviewer>-attempt-1.md` (do not synthesize or rewrite content)
    - Invoke `AuditRunArtifacts(required_paths)` for:
+     - `{artifacts_root}/reviews/iteration-{iteration}/task-handles.json`
      - `{artifacts_root}/reviews/iteration-{iteration}/code-quality-reviewer-attempt-1.md`
      - `{artifacts_root}/reviews/iteration-{iteration}/architecture-reviewer-attempt-1.md`
      - `{artifacts_root}/reviews/iteration-{iteration}/test-reviewer-attempt-1.md`
      - `{artifacts_root}/reviews/iteration-{iteration}/bug-reviewer-attempt-1.md`
      - If return is `ERROR`, stop for manual intervention
+   - Treat these persisted attempt files as the only parse source; do not parse transient background status text
 
 6. Parse each reviewer's result for `Verdict: APPROVE` or `Verdict: REQUEST_CHANGES`, plus evidence completeness
    - If a reviewer fails, times out, or returns unparseable output, re-run that same reviewer once immediately
@@ -477,6 +527,7 @@ Set iteration = 0, max_iterations = 5.
    - Treat REQUEST_CHANGES output as unparseable unless every `#### Issue N:` block contains:
      - `**File**` with a repo-relative path
      - `**Line(s)**`
+     - `**Diff Line(s)**` anchored to changed lines in `{base_hash}..HEAD`
      - `**Severity**` (`high | medium | low`)
      - `**Category**`
      - `**Problem**`
@@ -489,6 +540,13 @@ Set iteration = 0, max_iterations = 5.
      - either at least one `Caller evidence N:` caller-site anchor (`path:line`) with compatibility rationale, or explicit `No in-repo callers found` justification
    - If contract shifts are present, treat `test-reviewer` APPROVE as unparseable unless at least one evidence item cites an existing covering test with `path:line` and test name
    - If it still fails/unparseable after retry, report "Reviewer <name> failed twice; stopping for manual intervention." and **stop**
+   - Persist authoritative iteration decision to `{artifacts_root}/reviews/iteration-{iteration}/decision.json` with:
+     - `state_epoch`
+     - `iteration`
+     - canonical verdict per reviewer
+     - exact source attempt/verdict artifact paths used for parsing
+   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/reviews/iteration-{iteration}/decision.json"])`; on `ERROR`, stop for manual intervention
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="review-iteration-{iteration}-verdict", phase="phase3", summary={"decision_path": "{artifacts_root}/reviews/iteration-{iteration}/decision.json"})`
 
 7. Display a summary table:
    ```
@@ -510,23 +568,22 @@ Set iteration = 0, max_iterations = 5.
      - If return is `PASS`, invoke `ValidateVerificationAssertions(verification_assertions, verification_results, repo_root)`:
        - If assertion validation returns `FAIL` or `ERROR`, report and **stop**
      - Invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
-       - Persist outputs to:
-         - `{artifacts_root}/verification/review-polish-{iteration}-plan-conformance.json`
-         - `{artifacts_root}/verification/review-polish-{iteration}-plan-conformance.md`
-       - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
-       - If return is `FAIL` or `ERROR`, stop and report unmet requirement ids/anchors (do not auto-continue polish)
+     - Persist outputs to:
+       - `{artifacts_root}/verification/review-polish-{iteration}-plan-conformance.json`
+     - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
+     - If return is `FAIL` or `ERROR`, stop and report unmet requirement ids/anchors (do not auto-continue polish)
      - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
      - If return is `ERROR`, report and **stop** for manual intervention
      - Stage changed files with `git -C {repo_root} add <specific files>` (never `git add -A` / `git add .`)
      - If staged diff is empty, report "No safe polish changes applied; proceeding to finalize." and break to Phase 4
      - Create a new commit (not amend) describing the polish changes with a substantive body
-     - Enforce forbidden commit trailer policy (same checks as Phase 2 step 12); stop on violation
+     - Enforce forbidden commit trailer policy (same checks as Phase 2 step 13); stop on violation
      - Persist polish commit metadata to `{artifacts_root}/commits/review-polish-{iteration}.json`
      - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/commits/review-polish-{iteration}.json"])`; on `ERROR`, stop for manual intervention
      - Go back to Loop Start (re-run all 4 reviewers on cumulative diff)
 
 9. If ANY return REQUEST_CHANGES:
-   - Compile all feedback from all reviewers into a unified issue list
+   - Compile all feedback from authoritative iteration decision + reviewer verdict artifacts only (not transient background completion text) into a unified issue list
    - De-duplicate overlapping issues and prioritize high → medium → low
    - Ignore nitpicks for gating purposes
    - Address each issue: read context, make the fix, verify the fix
@@ -543,7 +600,6 @@ Set iteration = 0, max_iterations = 5.
    - Invoke `ValidatePlanConformanceChecklist(plan_contents, repo_root, diff_range="{base_hash}")`:
      - Persist outputs to:
        - `{artifacts_root}/verification/review-iteration-{iteration}-plan-conformance.json`
-       - `{artifacts_root}/verification/review-iteration-{iteration}-plan-conformance.md`
      - Invoke `AuditRunArtifacts(required_paths)` for persisted conformance files; on `ERROR`, stop for manual intervention
      - If return is `FAIL` or `ERROR`, stop and report unmet requirement ids/anchors before committing remediation changes
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop**
@@ -553,9 +609,10 @@ Set iteration = 0, max_iterations = 5.
    - Create a **new commit** (not amend) describing what was fixed:
      - If `{jira_ticket}` is present: JIRA ticket prefix followed by conventional commit format
      - If `{jira_ticket}` is empty: use conventional commit format only
-   - Enforce forbidden commit trailer policy (same checks as Phase 2 step 12); stop on violation
+   - Enforce forbidden commit trailer policy (same checks as Phase 2 step 13); stop on violation
    - Persist remediation commit metadata to `{artifacts_root}/commits/review-iteration-{iteration}.json`
    - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/commits/review-iteration-{iteration}.json"])`; on `ERROR`, stop for manual intervention
+   - Invoke `PersistRunStateCheckpoint(checkpoint_name="review-iteration-{iteration}-committed", phase="phase3", summary={"remediation_commit": "{artifacts_root}/commits/review-iteration-{iteration}.json"})`
    - Go back to Loop Start (re-run ALL four reviewers, not just the ones that failed — they see the full cumulative diff via `git -C {repo_root} diff {base_hash}..HEAD` and all commit messages)
 
 ## Phase 4: Optional Squash and Finalize
@@ -574,11 +631,26 @@ Set iteration = 0, max_iterations = 5.
      - No references to review iterations, fixes, or the review process
      - No Co-Authored-By tags or "Generated with Claude Code" signatures
 2. Run `git -C {repo_root} log -1` to confirm the final commit
-   - Also run `git -C {repo_root} log -1 --pretty=%B` and enforce forbidden trailer policy (same checks as Phase 2 step 12)
+   - Also run `git -C {repo_root} log -1 --pretty=%B` and enforce forbidden trailer policy (same checks as Phase 2 step 13)
    - Persist final commit metadata to `{artifacts_root}/commits/final-commit.json`
-   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/commits/final-commit.json"])`; on `ERROR`, stop for manual intervention
+   - Persist `{artifacts_root}/final-summary.json` with final status, final commit hash, verification summary path, conformance path, and authoritative review decision path
+   - Persist atomic finalization checkpoint first to `{artifacts_root}/state/phase4-finalized.json` with:
+     - `phase="phase4"`
+     - `head_hash`
+     - `summary.final_summary_path`
+     - `summary.final_commit_hash`
+   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/commits/final-commit.json", "{artifacts_root}/final-summary.json", "{artifacts_root}/state/phase4-finalized.json"])`; on `ERROR`, stop for manual intervention
+   - As the final atomic state transition, update `{artifacts_root}/state/run-state.json` last:
+     - increment `state_epoch` by 1 from current value
+     - `run_state="FINALIZED"`
+     - `finalized=true`
+     - `finalized_at_utc=<now>`
+     - `authoritative_final_summary="{artifacts_root}/final-summary.json"`
+     - `last_checkpoint_path="{artifacts_root}/state/phase4-finalized.json"`
+   - Invoke `AuditRunArtifacts(required_paths=["{artifacts_root}/state/run-state.json"])`; on `ERROR`, stop for manual intervention
 3. Report the commit hash and message
    - Include `artifacts_root` in the final report so verification/review evidence remains available even when transcript is compacted
+   - After FINALIZED state is written, ignore late asynchronous reviewer/verification completion chatter for gating; append such events to `{artifacts_root}/state/late-events.log` for audit only
 
 ## Error Handling
 
@@ -608,6 +680,8 @@ Set iteration = 0, max_iterations = 5.
 | Required test gate returns PASS but with `tests_executed <= 0` or `gate_effective != true` | Treat as verification error and stop for manual intervention |
 | Verification status includes non-protocol values (for example `PASS_WITH_PREEXISTING_FAILURE`, `FAIL_PREEXISTING`) | Treat as protocol violation and stop for manual intervention |
 | Required verification command contains output-truncating wrapper or `/dev/null` sink | Stop and report offending command id/text for manual intervention |
+| Setup manifest/summary artifact missing or empty | Stop and report missing setup artifact paths for manual intervention |
+| Required setup command fails before verification | Stop and report setup command id/log path for manual intervention |
 | Any verification command is executed directly in orchestrator (outside coordinator) | Stop and report policy violation for manual intervention |
 | Attempting to run ad-hoc baseline verification probes in orchestrator (for example `git stash` + build/test reruns) | Stop and report policy violation for manual intervention |
 | Plan non-command verification assertion cannot be deterministically checked | Stop and report manual intervention needed |
@@ -615,8 +689,12 @@ Set iteration = 0, max_iterations = 5.
 | Plan conformance checklist has unmapped explicit requirement(s) | Stop and report unmet requirement ids/anchors |
 | Plan conformance returns `FAIL`/`ERROR` and flow attempts to continue | Stop and report policy violation for manual intervention |
 | Review/polish remediation changes fail plan conformance against `{base_hash}` | Stop and report unmet requirement ids/anchors before commit |
+| `plan-review-digest.md` missing/empty | Stop and report missing artifact path for manual intervention |
+| Reviewer raw attempt artifact missing/empty | Stop and report missing artifact path for manual intervention |
+| Reviewer REQUEST_CHANGES issue missing `Diff Line(s)` anchor in `{base_hash}..HEAD` | Re-run reviewer once with compactness/range reminder; if repeated, stop for manual intervention |
+| Authoritative iteration `decision.json` missing/empty | Stop and report missing artifact path for manual intervention |
 | Reviewer output contains placeholder/synthetic stubs (for example `Full evidence provided`) | Re-run reviewer once; if repeated, stop for manual intervention |
-| REQUEST_CHANGES output missing required issue fields (`File`, `Line(s)`, `Severity`, `Category`, `Problem`, `Suggestion`) | Re-run reviewer once; if repeated, stop for manual intervention |
+| REQUEST_CHANGES output missing required issue fields (`File`, `Line(s)`, `Diff Line(s)`, `Severity`, `Category`, `Problem`, `Suggestion`) | Re-run reviewer once; if repeated, stop for manual intervention |
 | Proposed remediation contradicts explicit plan invariants/out-of-scope clauses | Ask user for explicit scope-expansion approval; if not approved, keep scope unchanged |
 | Empty staged diff | Report "Nothing staged" and stop |
 | Commit body missing/trivial | Report and stop for manual intervention |
@@ -625,6 +703,8 @@ Set iteration = 0, max_iterations = 5.
 | Reviewer output uses bare filenames instead of repo-relative paths in evidence/issues | Re-run that reviewer once; if still invalid, stop for manual intervention |
 | Contract-shift detected but architecture-reviewer APPROVE lacks `Caller Impact` evidence | Re-run architecture-reviewer once; if still invalid, stop for manual intervention |
 | Contract-shift detected but test-reviewer APPROVE lacks explicit test coverage citations | Re-run test-reviewer once; if still invalid, stop for manual intervention |
+| Phase4 finalization checkpoint exists but `run-state.json` is not `FINALIZED` | Stop and report partial-finalization state for manual intervention |
+| Late async reviewer/verification completion arrives after FINALIZED | Record to `state/late-events.log`, do not alter final verdict |
 | Optional polish pass verification fails | Report compact failure summary + log paths and stop |
 | Max iterations reached | Leave commits as-is (not squashed), report all remaining unresolved issues |
 | Reviewer fails twice | Stop and report reviewer name for manual intervention |
@@ -643,6 +723,10 @@ Set iteration = 0, max_iterations = 5.
 - Use adaptive review depth (`focused` vs `deep`) based on diff size/risk while still running all four reviewers
 - Always run verification via `verification-coordinator` (which delegates to `verification-worker`) rather than running raw verification commands directly in the orchestrator
 - Never invoke `verification-coordinator` directly from Phase 2/3 flow; always go through `RunVerificationLoop`
+- Never send full `{plan_contents}` to reviewers after Phase 1; use `{artifacts_root}/plan-review-digest.md` + iteration `prompt-pack.md`
+- Keep reviewer prompt packs compact and deterministic; prefer artifact paths over prose duplication
+- Never run environment prerequisite commands ad hoc (for example docker login); declare them in `phase2-setup-manifest.json` and record outcomes in `phase2-setup-summary.json`
+- Keep transcript output in quiet mode: path/status summaries by default, with large outputs persisted to artifact logs
 - Never run required verification gates with output-truncating wrappers (`| tail`, `| head`, `| sed -n`, pagers) or `/dev/null` sinks
 - Never treat timed-out or non-zero helper commands (formatters/generators/scripts used during remediation) as success; resolve or stop before proceeding
 - Never proceed on non-terminal/backgrounded verification output; always wait for terminal coordinator JSON, `workers_inflight=0`, and `workers_completed==workers_spawned`
@@ -655,6 +739,7 @@ Set iteration = 0, max_iterations = 5.
 - For required test gates, treat "no effective execution" (disabled/skipped-only/zero tests) as failure, not pass
 - Persist machine-readable verification summaries/manifests and reviewer verdict artifacts under `/tmp/implement-runs/{implement_run_id}`
 - Persist per-attempt coordinator artifacts and per-iteration reviewer artifacts for every iteration (`iteration-1`, `iteration-2`, ...)
+- Persist run-state checkpoints under `{artifacts_root}/state/` and treat them as authoritative when context compaction occurs
 - Audit required artifact paths after each persistence step; missing artifacts are hard failures
 - Never accept evidence-free APPROVE verdicts from reviewers
 - Never accept reviewer evidence that only uses bare filenames; require repo-relative paths
@@ -675,3 +760,5 @@ Set iteration = 0, max_iterations = 5.
 - Never create "fix feedback" commits when no files actually changed
 - Never invent a JIRA ticket if branch name does not contain one
 - When fixing blocking bug/correctness feedback, include a regression test for the missed edge case (or document why not feasible)
+- Finalization must be atomic: write and audit phase4 checkpoint artifacts first, then set `run-state.json` to `FINALIZED` as the last mutation
+- After writing FINALIZED state, never change gating decisions based on late async task text; only reopen if authoritative artifacts are invalid

@@ -24,83 +24,28 @@ The caller provides:
 
 ## Execution Rules
 
-1. Execute exactly one verification command. Local wrapper logic for logging/timing/process-drain checks is allowed.
-2. Execute from `cwd` provided by the caller.
-3. Respect `timeout_seconds` when provided.
-4. Write full stdout/stderr to `log_path`.
-5. Never inline full command output in your response.
-6. If the command fails, produce a short summary from the log (single line, concise).
-7. Set `retryable=true` only for likely transient failures (timeout, network flake, temporary lock/resource contention, subprocess interruption). Otherwise `false`.
-8. Run the command synchronously in the foreground and wait for termination before returning.
-9. Execute commands through Bash with pipefail enabled: use `/bin/bash -o pipefail -c "<command>"` (or equivalent) so pipeline segment failures are not masked.
-10. Detect whether the command contains one or more pipeline operators (`|`) and report this as `contains_pipeline` in the output JSON.
-11. If `contains_pipeline=true`, include a short note in `summary` confirming pipefail was enabled.
-12. Always set `pipefail_enabled=true` in output JSON when execution uses the required shell pattern.
-13. Never background execution (`&`, `nohup`, `disown`, job control) and never spawn detached subprocesses.
-14. Reject detached/background command patterns before execution:
-    - If the command text contains detached patterns (standalone `&`, `nohup`, `disown`, `setsid`), return `status=ERROR`, `retryable=false`, and a short summary explaining the rejected pattern.
-15. After command exit, verify the worker shell has no remaining child processes (for example via `ps -o pid= --ppid $$`):
-    - If remaining children are detected, return `status=ERROR`, `retryable=true`, and a short summary indicating leaked/background subprocesses.
-16. Compute gate-effectiveness metadata:
-    - `gate_effective`: whether this command produced meaningful signal for its gate type
-    - `tests_executed`: integer test count for `gate_type=test` when determinable; use `0` when logs indicate no tests executed
-    - `ineffective_reason`: short reason when `gate_effective=false`, else empty string
-17. Effectiveness heuristics for `gate_type=test`:
-    - Use strict extraction from the current log file only; never infer counts from URLs, external dashboards, or prior runs
-    - Prefer explicit test-count extraction from runner summaries (for example Gradle "`N tests completed`" or "`Tests Results: ... (N tests, ...)`", Maven "`Tests run: N`", Jest "`Tests: N passed`")
-    - Treat as ineffective when logs indicate cache/no-op behavior without an explicit executed test count > 0:
-      - Gradle/JVM task markers such as `:test UP-TO-DATE`, `:test FROM-CACHE`, `:test NO-SOURCE`, or test tasks only `SKIPPED`
-      - textual indicators like "0 tests", "No tests found", or equivalent
-    - If no explicit executed test count is present and no explicit no-op marker is present:
-      - set `tests_executed=-1`
-      - set `gate_effective=false` when `must_be_effective=true`
-      - otherwise keep conservative effectiveness with an explicit reason
-    - If `must_be_effective=true`, require explicit evidence of executed tests (`tests_executed > 0`); otherwise return `gate_effective=false` with an explicit `ineffective_reason`
+1. Execute exactly one command in `cwd`; respect `timeout_seconds` when provided.
+2. Write full stdout/stderr to `log_path` using shell redirection; never inline raw command output in response.
+3. Execute via Bash with pipefail enabled and redirected logs:
+   - `/bin/bash -o pipefail -c "<command>" >"<log_path>" 2>&1`
+4. Never allow detached/background execution:
+   - reject commands containing standalone `&`, `nohup`, `disown`, or `setsid` with `status=ERROR`, `retryable=false`
+5. After command exit, verify no leaked child processes under worker shell; leaked children => `status=ERROR`, `retryable=true`.
+6. Set `retryable=true` only for likely transient failures (timeout/network/temporary lock/interruption).
+7. Compute gate effectiveness:
+   - For `gate_type=test`, extract explicit test counts from current log when possible.
+   - If logs indicate no-op (`UP-TO-DATE`, `FROM-CACHE`, `NO-SOURCE`, `0 tests`, `No tests found`), set ineffective.
+   - If required effectiveness cannot be proven, set `gate_effective=false` with explicit `ineffective_reason`.
 
-## Suggested Shell Pattern
+## Output Contract (Strict)
 
-Use an explicit shell invocation that captures exit code and duration, for example:
+Return exactly one JSON object (no markdown, no code fences).
 
-- `mkdir -p "$(dirname "$log_path")"`
-- Run command in `cwd` via `/bin/bash -o pipefail -c "$command"` and redirect both stdout/stderr to `log_path`
-- Capture exit code, start/end timestamps, and duration
-- Ensure the shell command blocks until completion (no trailing `&` and no detached wrapper)
-- After command completion, verify there are no remaining child processes under the worker shell before returning
+Required fields:
+- `command_id`, `required`, `must_be_effective`, `gate_type`
+- `status` (`PASS|FAIL|ERROR`), `exit_code`, `duration_ms`, `log_path`
+- `gate_effective`, `tests_executed`, `ineffective_reason`
+- `summary`, `retryable`
 
-## Output Format
-
-Return exactly this block (valid JSON inside the fenced code block):
-
-```json
-{
-  "command_id": "string",
-  "command": "string",
-  "cwd": "string",
-  "gate_type": "test",
-  "must_be_effective": true,
-  "required": true,
-  "pipefail_enabled": true,
-  "contains_pipeline": false,
-  "status": "PASS",
-  "exit_code": 0,
-  "duration_ms": 0,
-  "log_path": "string",
-  "gate_effective": true,
-  "tests_executed": 12,
-  "ineffective_reason": "",
-  "summary": "short single-line summary",
-  "retryable": false
-}
-```
-
-### Status Semantics
-
-- `PASS`: command executed and exited with code 0
-- `FAIL`: command executed and exited non-zero
-- `ERROR`: command could not be executed or result could not be determined
-
-Effectiveness semantics are independent from exit status:
-
-- A command may return `status=PASS` with `gate_effective=false` when execution succeeded but provided no meaningful verification signal.
-
-Keep `summary` under 240 characters and avoid multiline content.
+Size constraints:
+- `summary` must be one line, <= 80 chars

@@ -1,10 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./gradlew:*)",
-      "Bash(../../gradlew:*)",
-      "Bash(*:/tmp/*)",
-      "Bash(git*)"
+      "Bash(git *)",
+      "Bash(*gradle*)",
+      "Bash(* /tmp/*)"
     ],
     "deny": []
   },

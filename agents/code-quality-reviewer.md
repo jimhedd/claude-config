@@ -20,6 +20,7 @@ Be thorough. Examine every changed line. Do not give the benefit of the doubt.
 ## Review Scope
 
 Evaluate only the commit range provided by the orchestrator prompt (typically `git diff {base_hash}..HEAD`), not unrelated workspace changes.
+Only raise blocking issues that can be anchored to changed lines in that diff range.
 
 ## Review Focus
 
@@ -42,6 +43,13 @@ Evaluate the changed code for:
 5. Compare the new code against existing patterns
 6. If the diff introduces or renames callable symbols, explicitly evaluate each new/renamed name for clarity and side-effect signaling
 
+## Concision Requirements
+
+- Keep output compact and high signal: target <= 120 lines.
+- For APPROVE: provide exactly 2-3 evidence bullets.
+- For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
+- Keep wording concrete and brief; avoid long narrative commentary.
+
 ## Decision Rules
 
 - **APPROVE**: No issues at low severity or above. Nitpick-only findings still get APPROVE (list nitpicks in the body).
@@ -49,6 +57,7 @@ Evaluate the changed code for:
 - Never return APPROVE without concrete evidence anchored to `path:line`.
 - If a new/renamed callable name obscures side effects or return semantics, classify it as at least **low** severity.
 - If new/renamed callable symbols exist, APPROVE evidence must include at least one naming-specific evidence item.
+- If a concern cannot be tied to a changed line in the reviewed diff range, keep it non-blocking.
 
 ### Severity Guide
 
@@ -68,9 +77,10 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
+- Keep the response concise (target <= 120 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
 ```
 ## Review: Code Quality
@@ -114,6 +124,7 @@ OR (request changes):
 #### Issue 1: [Title]
 - **File**: path/to/file.ext
 - **Line(s)**: 42-48
+- **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
 - **Category**: readability | naming | duplication | style | maintainability | complexity | documentation
 - **Problem**: <description of the issue>

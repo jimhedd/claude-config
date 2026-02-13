@@ -177,7 +177,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
      - tests first (preferred)
      - otherwise typecheck/lint/build
    - Context-protection default for optional pre-test compile gates:
-     - Do **not** auto-add compile/typecheck pre-gates by default (to avoid extra verification worker calls and token cost).
+     - Do **not** auto-add compile/typecheck pre-gates by default (to avoid extra verification command executions and token cost).
      - Add a pre-gate only when explicitly required by `{plan_contents}` or when the immediately previous verification attempt failed due to compile/setup prerequisites.
      - If added, mark it `required=false`, run it once before required test gates, and do not duplicate a signal already covered by a required gate.
    - Auto-added mutating commands policy:
@@ -185,7 +185,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
      - add mutating commands (formatters/auto-fixers/code generators) only when explicitly required by `{plan_contents}` or when they are the only viable way to produce a meaningful verification gate
    - Minimize redundant auto-detected gates:
      - If an aggregate command already covers lower-level checks (for example, `check` covering test/lint), avoid adding duplicate commands unless explicitly required by the plan
-   - Normalize commands to run from coordinator-provided `cwd`:
+   - Normalize commands to run from verification-loop `cwd`:
      - Do not prefix commands with `cd ... &&`; pass a clean command string
    - Assign execution metadata per command:
      - `stage`: integer stage index (`0`, `1`, ...)
@@ -242,7 +242,7 @@ Store the plan file contents in a variable referred to as `{plan_contents}` for 
    - If any `required=true` setup command fails or errors, stop and report manual intervention needed (do not continue to verification)
 8. If no verification command could be executed, report that and **stop** (do not commit)
 9. Invoke `RunVerificationLoop(verification_commands, verification_manifest, context_label="phase2-initial")`
-   - `RunVerificationLoop` is the only allowed entry point for verification orchestration in all phases; do not call `verification-coordinator` directly from Phase 2/3 flow
+   - `RunVerificationLoop` is the only allowed verification execution entry point in all phases and uses one uniform direct-execution path for every run
    - If return is `FAIL_MAX_ATTEMPTS`, report compact failure summary + log paths and **stop** (do not commit)
    - If return is `ERROR`, report and **stop** for manual intervention
    - If return is `PASS`, print only a one-line verification status summary plus artifact path(s) (no inline per-command table in transcript)
@@ -299,46 +299,39 @@ Inputs:
 Outputs:
 
 - `status`: `PASS` | `FAIL_MAX_ATTEMPTS` | `ERROR`
-- `verification_results`: parsed coordinator JSON summary object from the latest attempt (required when `status=PASS`)
+- `verification_results`: parsed verification summary JSON object from the latest attempt (required when `status=PASS`)
 
 Algorithm:
 
-1. Set `verification_fix_attempt = 0` and `max_verification_fix_attempts = 3`
+1. Set `verification_fix_attempt = 0` (single-attempt fail-fast mode)
 2. Enforce immutable command set before execution:
    - `verification_commands` must exactly match `verification_manifest.commands` (length, order, ids, command text, and execution metadata).
    - On mismatch, return `ERROR` (command drift/manual intervention).
 3. Capture immutable in-scope files and persist `{artifacts_root}/verification/{context_label}-scope-files.txt`:
    - union of tracked (`git diff --name-only`) and untracked (`git ls-files --others --exclude-standard`) repo-relative paths.
    - if empty, return `ERROR`.
-4. Repeat until terminal:
+4. Execute one terminal verification attempt:
    - Transcript budget per attempt: at most 4 orchestrator lines (`start`, `terminal status`, optional compact failure digest, artifact path). Do not emit invariant-by-invariant commentary.
-   - Delegate execution only via `verification-coordinator` Task (never run gates directly in orchestrator).
-   - Invoke coordinator with minimal payload only:
-     - `cwd`, `run_id={context_label}-attempt-{verification_fix_attempt}`, `flaky_retry_limit=1`, `response_mode=minimal_json`, `commands=verification_commands`
-   - Coordinator response contract for context minimization:
-     - return exactly one JSON object (no markdown, no raw logs)
-     - include only protocol fields required for gating + log paths
-   - If Task returns a stream/background handle, poll until terminal JSON.
+   - Execute verification commands directly from `verification_manifest.commands` (single path for every run; no verification subagents).
+   - For each command in manifest order:
+     - run from `repo_root` with Bash pipefail and file-only logs:
+       - `/bin/bash -o pipefail -c "<command>" >"{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}-{command_id}.log" 2>&1`
+     - capture `exit_code`, `duration_ms`, and `log_path`
+     - map status deterministically: `exit_code==0 -> PASS`, non-zero -> `FAIL`; execution/parsing failure -> `ERROR`
+     - compute effectiveness metadata:
+       - for required `gate_type=test`, require explicit evidence of tests executed (`tests_executed > 0`) from current attempt log
+       - when no-op/no-tests markers appear (for example `UP-TO-DATE`, `FROM-CACHE`, `NO-SOURCE`, `0 tests`, `No tests found`), set `gate_effective=false` with `ineffective_reason`
+     - on first required command with `status!=PASS` or ineffective required test gate, stop scheduling further commands in this attempt and mark remaining required commands as `ERROR` with `summary="skipped_after_required_failure"`
    - Persist parsed summary to `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.json`.
-   - Persist raw coordinator text only when JSON parsing fails, to `{artifacts_root}/verification/{context_label}-attempt-{verification_fix_attempt}.txt`.
-   - If coordinator fails/times out/unparseable, retry once; if repeated, return `ERROR`.
    - Validate protocol invariants:
      - canonical statuses only (`PASS|FAIL|ERROR`)
-     - `workers_inflight=0` and `workers_completed==workers_spawned`
      - `results.length==len(verification_commands)`
-     - `command_manifest_validated=true` and `manifest_mismatches` is empty
      - manifest fidelity: one result per `command_id`; no extras
-     - each result includes compact required fields for gating (`status`, `attempts`, `log_path`, effectiveness metadata)
      - required test gates must have `status=PASS`, `gate_effective=true`, `tests_executed>0`
    - Decision:
-     - `overall_status=PASS` => return `PASS` with `verification_results`
-     - `overall_status=ERROR` => return `ERROR`
-     - `overall_status=FAIL` and `verification_fix_attempt >= max_verification_fix_attempts` => `FAIL_MAX_ATTEMPTS`
-     - `overall_status=FAIL` and attempts remain:
-       - surface only compact `short_failure_digest` + log paths (<= 8 lines total)
-       - apply focused fixes without weakening test intent
-       - enforce in-scope edits only; if new out-of-scope edits appear, return `ERROR`
-       - increment attempt and continue
+     - all required commands pass with effective required test gates => return `PASS` with `verification_results`
+     - any required command `ERROR` => return `ERROR`
+     - any required failure => `FAIL_MAX_ATTEMPTS`; surface only compact `short_failure_digest` + log paths (<= 6 lines total) and stop
 5. Never proceed while required verification commands are failing.
 
 ## Shared Procedure: ValidateVerificationAssertions
@@ -672,17 +665,14 @@ Set iteration = 0, max_iterations = 5.
 | Required verification fails only on files outside `verification_scope_files` snapshot | Stop and report out-of-scope/pre-existing failure for manual intervention |
 | Verification-fix attempt introduces edits outside `verification_scope_files` | Stop and report out-of-scope edits; do not continue auto-fixing |
 | Required persisted artifact file is missing/empty after a write step | Stop and report missing artifact paths for manual intervention |
-| Verification coordinator output is missing/malformed terminal JSON summary | Re-run coordinator once; if still malformed, stop for manual intervention |
-| Verification worker drain counters are inconsistent (`workers_completed != workers_spawned` or `workers_inflight > 0`) | Treat as coordinator error; re-run once, then stop for manual intervention |
 | Required test gate is ineffective (e.g., disabled/no tests executed) | Stop and report manual intervention needed unless user explicitly approves fallback |
-| Verification reports PASS but workers are still running | Treat as coordinator error; re-run once, then stop for manual intervention |
-| Background worker completion appears after an accepted PASS verdict | Treat prior verdict as invalid; re-run verification once, then stop for manual intervention if repeated |
+| Verification command execution cannot be started or shell execution fails unexpectedly | Stop and report manual intervention needed |
+| Verification attempt summary JSON is missing/unparseable | Stop and report manual intervention needed |
 | Required test gate returns PASS but with `tests_executed <= 0` or `gate_effective != true` | Treat as verification error and stop for manual intervention |
 | Verification status includes non-protocol values (for example `PASS_WITH_PREEXISTING_FAILURE`, `FAIL_PREEXISTING`) | Treat as protocol violation and stop for manual intervention |
 | Required verification command contains output-truncating wrapper or `/dev/null` sink | Stop and report offending command id/text for manual intervention |
 | Setup manifest/summary artifact missing or empty | Stop and report missing setup artifact paths for manual intervention |
 | Required setup command fails before verification | Stop and report setup command id/log path for manual intervention |
-| Any verification command is executed directly in orchestrator (outside coordinator) | Stop and report policy violation for manual intervention |
 | Attempting to run ad-hoc baseline verification probes in orchestrator (for example `git stash` + build/test reruns) | Stop and report policy violation for manual intervention |
 | Plan non-command verification assertion cannot be deterministically checked | Stop and report manual intervention needed |
 | Plan non-command verification assertion check fails | Report assertion failure and stop |
@@ -718,27 +708,25 @@ Set iteration = 0, max_iterations = 5.
 - NEVER add Co-Authored-By lines or "Generated with Claude Code" to commits
 - Keep `Review loop` and `RunVerificationLoop` separate; do not merge their responsibilities
 - Build `verification_scope_files` from tracked + untracked files (not tracked-only diffs)
-- Prefer maximum safe parallelism: make read-only independent checks `parallel_safe=true` in the same stage
+- Prefer the smallest deterministic verification gate set and run it in manifest order
 - Always re-run ALL four reviewers each iteration, even if only one requested changes
 - Use adaptive review depth (`focused` vs `deep`) based on diff size/risk while still running all four reviewers
-- Always run verification via `verification-coordinator` (which delegates to `verification-worker`) rather than running raw verification commands directly in the orchestrator
-- Never invoke `verification-coordinator` directly from Phase 2/3 flow; always go through `RunVerificationLoop`
+- Always run verification through the single `RunVerificationLoop` direct-execution path for every run (no alternate modes)
 - Never send full `{plan_contents}` to reviewers after Phase 1; use `{artifacts_root}/plan-review-digest.md` + iteration `prompt-pack.md`
 - Keep reviewer prompt packs compact and deterministic; prefer artifact paths over prose duplication
 - Never run environment prerequisite commands ad hoc (for example docker login); declare them in `phase2-setup-manifest.json` and record outcomes in `phase2-setup-summary.json`
 - Keep transcript output in quiet mode: path/status summaries by default, with large outputs persisted to artifact logs
 - Never run required verification gates with output-truncating wrappers (`| tail`, `| head`, `| sed -n`, pagers) or `/dev/null` sinks
 - Never treat timed-out or non-zero helper commands (formatters/generators/scripts used during remediation) as success; resolve or stop before proceeding
-- Never proceed on non-terminal/backgrounded verification output; always wait for terminal coordinator JSON, `workers_inflight=0`, and `workers_completed==workers_spawned`
+- Never run verification via nested subagents from `/implement`; execute verification commands directly with Bash pipefail and file-only logs
 - Never substitute, bypass, or drop explicit plan-specified verification commands without explicit user approval, except exact duplicate removal after normalization and approved effectiveness-enforcement flags for required test gates
 - Treat the phase2 verification manifest as immutable for the rest of the run (same command ids/order/text/metadata)
 - Never auto-fix verification failures by editing out-of-scope files; stop for manual intervention when failures are pre-existing/out-of-scope
 - Never reclassify required-gate failures as pass/non-blocking/pre-existing in order to continue
 - Never accept verification results whose command list does not exactly match the emitted `verification_manifest`
-- Never accept verification results when `command_manifest_validated` is false
 - For required test gates, treat "no effective execution" (disabled/skipped-only/zero tests) as failure, not pass
 - Persist machine-readable verification summaries/manifests and reviewer verdict artifacts under `/tmp/implement-runs/{implement_run_id}`
-- Persist per-attempt coordinator artifacts and per-iteration reviewer artifacts for every iteration (`iteration-1`, `iteration-2`, ...)
+- Persist per-attempt verification summary artifacts and per-iteration reviewer artifacts for every iteration (`iteration-1`, `iteration-2`, ...)
 - Persist run-state checkpoints under `{artifacts_root}/state/` and treat them as authoritative when context compaction occurs
 - Audit required artifact paths after each persistence step; missing artifacts are hard failures
 - Never accept evidence-free APPROVE verdicts from reviewers

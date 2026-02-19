@@ -34,16 +34,23 @@ Evaluate the changed code for:
 - **Caller impact / contract compatibility**: When callable signatures, preconditions/postconditions, validation boundaries, side effects, or error contracts change, trace affected callers and verify behavior remains compatible (or that intended breakage is explicitly handled). Look for silent semantic drift in downstream call sites.
 - **Abstraction**: Are abstractions at the right level — neither premature nor missing? Do abstractions leak implementation details? Are there wrapper classes or interfaces that add indirection without value? Conversely, is concrete logic duplicated where an abstraction is warranted?
 - **Error architecture**: Is error handling consistent with the project's patterns? Are errors caught and re-thrown at the right architectural level? Are domain errors distinct from infrastructure errors? Is error context preserved during propagation?
+- **Idempotency and retry safety**: For operations that could be retried (API handlers,
+  message/event consumers, background jobs, webhook receivers), verify the operation is
+  safe to execute multiple times. Watch for duplicate writes, double-charging, or
+  non-idempotent side effects. Skip this check for purely internal or single-execution code paths.
 
 ## Workflow
 
 1. Run the git commands provided in the review prompt to see commit messages and changes for the requested range
 2. Run `git diff --name-only` (using the same ref range from the prompt) to get the list of changed files in that range
 3. For each changed file, use the Read tool to examine the full file and surrounding modules
-4. Use Glob and Grep to understand the project structure and existing architectural patterns
-5. Assess whether the changes fit coherently into the existing architecture
-6. If callable symbols are newly introduced/renamed, explicitly assess whether naming matches architectural responsibility and side-effect contract
-7. If callable contracts shift (signature, side effects, pre/postconditions, validation ownership, or error semantics), trace direct callers and confirm compatibility at call sites; escalate when downstream behavior can regress
+4. Write a brief semantic summary (2-3 sentences) of what the change actually does
+   and what behavior it modifies. Base this on reading the code, not just the commit
+   message. This summary anchors the rest of your review.
+5. Use Glob and Grep to understand the project structure and existing architectural patterns
+6. Assess whether the changes fit coherently into the existing architecture
+7. If callable symbols are newly introduced/renamed, explicitly assess whether naming matches architectural responsibility and side-effect contract
+8. If callable contracts shift (signature, side effects, pre/postconditions, validation ownership, or error semantics), trace direct callers and confirm compatibility at call sites; escalate when downstream behavior can regress
 
 ## Concision Requirements
 
@@ -91,12 +98,18 @@ Hard requirements:
 ```
 ## Review: Architecture
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific architecture check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific architecture check and why it passed>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 No issues found.
 ```
@@ -106,12 +119,18 @@ OR (approve with nitpicks):
 ```
 ## Review: Architecture
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific architecture check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific architecture check and why it passed>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 #### Caller Impact
 - Changed callable: path/to/fileA.ext:12 - <what contract changed>
@@ -120,7 +139,7 @@ OR (approve with nitpicks):
 #### Nitpick 1: [Title]
 - **File**: path/to/file.ext
 - **Line(s)**: 12
-- **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture
+- **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture | idempotency
 - **Comment**: <description of the nitpick>
 ```
 
@@ -129,6 +148,9 @@ OR (request changes):
 ```
 ## Review: Architecture
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: REQUEST_CHANGES
 
 #### Issue 1: [Title]
@@ -136,7 +158,7 @@ OR (request changes):
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
-- **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture
+- **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture | idempotency
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific, actionable fix>
 ```

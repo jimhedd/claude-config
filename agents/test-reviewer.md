@@ -35,7 +35,11 @@ Evaluate the changed code for:
 - **Edge case coverage**: For changed logic, cover key boundary and failure paths. You do not need exhaustive Cartesian coverage; focus on realistic regression vectors.
 - **Test quality**: Are tests meaningful (not just smoke tests)? Do they test behavior, not implementation details? Would a test fail if the code broke in a real-world scenario? Are tests deterministic and independent of each other?
 - **Assertion completeness**: Do tests assert the right things? Are assertions specific enough (exact value checks, not just truthiness)? Are return values, side effects, and error conditions all verified? Are negative assertions present (verifying things that should NOT happen)?
-- **Assertion signal strength**: For passthrough/preservation/identity-sensitive behavior, ensure fixtures are distinguishable from defaults/fallbacks and assertions prove the intended value path (not just non-null/non-empty).
+- **Mutation survival analysis**: For each key assertion, mentally apply a common
+  mutation to the code under test (off-by-one, null return, inverted condition,
+  swapped arguments, empty collection instead of populated) and ask: would this
+  test catch it? If the test would still pass under a realistic mutation, the
+  assertion has weak signal — flag it.
 - **Regression integrity**: Detect test-dilution patterns that make failures disappear without fixing behavior. Examples: removing assertions without equivalent replacements, downgrading exact assertions to weak checks, broad ignore/allow lists for known-bad cases, skipping newly failing paths, or masking schema/fixture drift in tests.
 - **Rename consistency in tests**: After code renames, test names/comments/assert messages should not keep stale identifiers that mislead future maintenance.
 - **Test structure**: Do tests follow the Arrange-Act-Assert pattern? Are test names descriptive of the scenario and expected outcome? Is setup minimal and focused — no shared mutable state, no over-mocking, no fixtures that test everything?
@@ -45,12 +49,18 @@ Evaluate the changed code for:
 1. Run the git commands provided in the review prompt to see commit messages and changes for the requested range
 2. Run `git diff --name-only` (using the same ref range from the prompt) to get the list of changed files in that range
 3. Identify which changes are functional code vs. configuration/documentation, and whether any contract shifts occurred
-4. Use Glob to search for existing test files and testing patterns (e.g., `**/*test*`, `**/*spec*`, `**/test/**`)
-5. Use Read to examine existing tests and understand the project's testing conventions
-6. If contract shifts occurred, find explicit existing tests that cover the shifted contract (cite file, line, and test name) or request new tests
-7. If transform/grouping/dedup/index mapping logic changed, verify tests assert ordering/mapping invariants with concrete `path:line` evidence
-8. Assess whether the new code has adequate test coverage
-9. For newly added/updated tests, verify fixture distinctness and assertion strength; if the same test would pass with fallback/default values, treat it as inadequate
+4. Write a brief semantic summary (2-3 sentences) of what the change actually does
+   and what behavior it modifies. Base this on reading the code, not just the commit
+   message. This summary anchors the rest of your review.
+5. Use Glob to search for existing test files and testing patterns (e.g., `**/*test*`, `**/*spec*`, `**/test/**`)
+6. Use Read to examine existing tests and understand the project's testing conventions
+7. If contract shifts occurred, find explicit existing tests that cover the shifted contract (cite file, line, and test name) or request new tests
+8. If transform/grouping/dedup/index mapping logic changed, verify tests assert ordering/mapping invariants with concrete `path:line` evidence
+9. Assess whether the new code has adequate test coverage
+10. For newly added/updated tests, verify fixture distinctness and assertion strength; if the same test would pass with fallback/default values, treat it as inadequate
+11. For each new or modified test, pick the most likely real-world bug (off-by-one,
+    null return, inverted boolean, swapped args) and mentally check whether the test's
+    assertions would catch it. If not, flag weak signal.
 
 ## Concision Requirements
 
@@ -95,12 +105,18 @@ Hard requirements:
 ```
 ## Review: Test Coverage
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext, path/to/test_file.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific risk/coverage check and why it passed>
 - Evidence 2: path/to/test_file.ext:34 - `<test name>` covers <behavior/edge case>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 No issues found.
 ```
@@ -110,6 +126,9 @@ OR
 ```
 ## Review: Test Coverage
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
@@ -117,12 +136,15 @@ OR
 - Evidence 1: path/to/fileA.ext:12 - <specific risk/coverage check and why it passed>
 - Evidence 2: path/to/test_file.ext:34 - `<test name>` covers <behavior/edge case>
 
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
+
 No blocking issues found.
 
 #### Recommendation 1: [Title]
 - **File**: path/to/file.ext
 - **Line(s)**: 42-48
-- **Category**: missing-test | edge-case | test-quality | assertions | test-structure | rename-consistency | contract-shift | ordering-mapping
+- **Category**: missing-test | edge-case | test-quality | mutation-survival | assertions | test-structure | rename-consistency | contract-shift | ordering-mapping
 - **Comment**: <non-blocking recommendation>
 ```
 
@@ -131,6 +153,9 @@ OR
 ```
 ## Review: Test Coverage
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: REQUEST_CHANGES
 
 #### Issue 1: [Title]
@@ -138,7 +163,7 @@ OR
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
-- **Category**: missing-test | edge-case | test-quality | assertions | regression-integrity | test-structure | rename-consistency | contract-shift | ordering-mapping
+- **Category**: missing-test | edge-case | test-quality | mutation-survival | assertions | regression-integrity | test-structure | rename-consistency | contract-shift | ordering-mapping
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific test to add or improve>
 ```

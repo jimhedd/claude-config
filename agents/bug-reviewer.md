@@ -34,7 +34,18 @@ Evaluate the changed code for:
 - **Error handling**: Swallowed errors, missing catch blocks, incorrect error propagation
 - **Security**: Injection vulnerabilities (SQL, command, XSS), path traversal, hardcoded secrets
 - **Type safety**: Incorrect type coercions, unsafe casts, unvalidated any-typed values, implicit conversions that lose precision or change semantics
-- **Data integrity**: Missing input validation, inconsistent state updates, partial writes without rollback, operations that can leave data in an intermediate/corrupt state
+- **Return value neglect**: Newly added function/method calls whose return values are
+  ignored — especially calls that can return errors, null/optional, or status codes.
+  Trace each new call site and verify its return value is checked or intentionally discarded.
+- **Unhappy path correctness**: For each changed code path, trace what happens when a
+  dependency throws, returns an error, times out, or returns unexpected data. Verify
+  error propagation is correct and that partial state changes are cleaned up or rolled back.
+- **Async/concurrency pitfalls**: Missing awaits, floating promises, unhandled rejections,
+  uncancelled coroutines, and missing synchronization around shared mutable state. (Skip
+  this check for languages without async constructs.)
+- **Data integrity**: Missing input validation, inconsistent state updates, partial writes without rollback, operations that can leave data in an intermediate/corrupt state.
+  After partial execution of a multi-step operation, verify cleanup or rollback handles
+  all intermediate state — not just the happy-path completion.
 - **Ordering/mapping invariants**: Re-indexing/grouping/dedup/row-mapping transformations preserve required ordering semantics and stable row-to-result attribution
 - **Correctness masking**: Test-only or validation-only edits that suppress known failures (ignore lists, skipped paths, weaker assertions) without resolving the underlying defect path.
 - **Regression signal strength**: New tests for value-preservation/passthrough behavior must use distinguishable fixtures and assertions that fail when fallback/default behavior occurs.
@@ -44,10 +55,16 @@ Evaluate the changed code for:
 1. Run the git commands provided in the review prompt to see commit messages and changes for the requested range
 2. Run `git diff --name-only` (using the same ref range from the prompt) to get the list of changed files in that range
 3. For each changed file, use the Read tool to examine the full file for context
-4. Trace data flow and control flow through the changed code
-5. Use Grep to check how functions are called elsewhere, what inputs they receive
-6. If grouping/dedup/index-remap/row-mapping logic changed, verify ordering and row/result mapping invariants are preserved (with concrete `path:line` evidence)
-7. Consider what happens with unexpected inputs, concurrent access, and failure modes
+4. Write a brief semantic summary (2-3 sentences) of what the change actually does
+   and what behavior it modifies. Base this on reading the code, not just the commit
+   message. This summary anchors the rest of your review.
+5. Trace data flow and control flow through the changed code
+6. Use Grep to check how functions are called elsewhere, what inputs they receive
+7. If grouping/dedup/index-remap/row-mapping logic changed, verify ordering and row/result mapping invariants are preserved (with concrete `path:line` evidence)
+8. For each changed code path, explicitly trace the error/failure path: what happens
+   when a called function throws, returns null, or returns an error? Does the caller
+   handle it correctly? Is partial state cleaned up?
+9. Consider what happens with unexpected inputs, concurrent access, and failure modes
 
 ## Concision Requirements
 
@@ -85,12 +102,18 @@ Hard requirements:
 ```
 ## Review: Bug Review
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific bug-risk check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific bug-risk check and why it passed>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 No issues found.
 ```
@@ -100,6 +123,9 @@ OR
 ```
 ## Review: Bug Review
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: REQUEST_CHANGES
 
 #### Issue 1: [Title]
@@ -107,7 +133,7 @@ OR
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
-- **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking
+- **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking | return-value-neglect | unhappy-path | async-concurrency
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific fix>
 ```

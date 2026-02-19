@@ -98,6 +98,12 @@ If output is unparseable, rerun that reviewer once. If still unparseable, stop f
 - If all 4 are `APPROVE`: exit loop and finalize.
 - If any reviewer is `REQUEST_CHANGES`:
   - merge and prioritize blocking issues
+  - Before implementing fixes, deduplicate findings across reviewers:
+    - If multiple reviewers flag the same file:line range, merge into one fix item
+      and note which reviewers flagged it
+    - Prioritize by: P0 (bug high, bug medium+security/data-integrity/race-condition,
+      arch high) > P1 (remaining medium bugs, arch medium, test high, quality high) > P2
+    - Address P0 items first, then P1, then P2 if iteration budget remains
   - implement fixes
   - add/update regression tests when fixing bug/correctness findings (when feasible)
   - stage specific files only

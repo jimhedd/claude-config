@@ -28,8 +28,12 @@ Evaluate the changed code for:
 
 - **Readability**: Is the code easy to understand at a glance? Are complex sections explained? Could a new team member follow this without asking questions? Watch for clever one-liners that sacrifice clarity, deeply nested logic, and unclear control flow.
 - **Naming**: Are variables, functions, classes, and files named clearly and consistently? Do names accurately describe what they hold or do? Are abbreviations avoided unless universally understood? Are boolean names phrased as questions (e.g., `isReady`, `hasPermission`)? For newly introduced or renamed callables, verify the name communicates side effects (especially mutation/removal) and output semantics.
+  Flag generic names (data, info, result, temp, val, item, obj, entry) when a more
+  domain-specific name is clearly available from context.
 - **DRY**: Is there unnecessary duplication that should be extracted? Are there near-identical code blocks that differ only in a value or two? Is copy-paste code present that should be a shared helper?
 - **Style consistency**: Do the changes follow the existing codebase's conventions and patterns? Are similar constructs handled the same way throughout? Do formatting, import ordering, and file structure match the surrounding code?
+  Compare new code against the closest similar functions in the same file — are error
+  handling patterns, naming conventions, and structural patterns consistent with neighbors?
 - **Maintainability**: Will this code be easy to modify and extend in the future? Are there magic numbers or hardcoded values that should be constants? Are responsibilities cleanly separated? Would a future developer be able to safely change this code without fear of breaking something?
 - **Complexity**: Are functions short and focused on a single task? Is nesting kept shallow (≤3 levels)? Are complex conditionals extracted into well-named helpers or variables? Is cyclomatic complexity reasonable?
 - **Documentation**: Are public APIs documented? Are comments accurate and not stale? Do comments explain *why*, not *what*? Are misleading or outdated comments present? Is there missing context that would help a future reader? Pay extra attention to stale symbol references after renames.
@@ -39,9 +43,12 @@ Evaluate the changed code for:
 1. Run the git commands provided in the review prompt to see commit messages and changes for the requested range
 2. Run `git diff --name-only` (using the same ref range from the prompt) to get the list of changed files in that range
 3. For each changed file, use the Read tool to examine surrounding context (not just the diff)
-4. Use Glob and Grep to understand existing codebase patterns and conventions
-5. Compare the new code against existing patterns
-6. If the diff introduces or renames callable symbols, explicitly evaluate each new/renamed name for clarity and side-effect signaling
+4. Write a brief semantic summary (2-3 sentences) of what the change actually does
+   and what behavior it modifies. Base this on reading the code, not just the commit
+   message. This summary anchors the rest of your review.
+5. Use Glob and Grep to understand existing codebase patterns and conventions
+6. Compare the new code against existing patterns
+7. If the diff introduces or renames callable symbols, explicitly evaluate each new/renamed name for clarity and side-effect signaling
 
 ## Concision Requirements
 
@@ -85,12 +92,18 @@ Hard requirements:
 ```
 ## Review: Code Quality
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific check performed and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific check performed and why it passed>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 No issues found.
 ```
@@ -100,12 +113,18 @@ OR (approve with nitpicks):
 ```
 ## Review: Code Quality
 
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
 ### Verdict: APPROVE
 
 #### Evidence
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific check performed and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific check performed and why it passed>
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
 
 #### Nitpick 1: [Title]
 - **File**: path/to/file.ext
@@ -118,6 +137,9 @@ OR (request changes):
 
 ```
 ## Review: Code Quality
+
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
 
 ### Verdict: REQUEST_CHANGES
 

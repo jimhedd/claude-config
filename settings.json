@@ -39,10 +39,6 @@
       }
     ]
   },
-  "statusLine": {
-    "type": "command",
-    "command": "bun x ccusage statusline"
-  },
   "enabledPlugins": {
     "ralph-wiggum@claude-plugins-official": true
   },

@@ -72,10 +72,10 @@ Remember the output as `merge_base`.
 
 Get the diff stat, summary, and commit log (run each as a separate command):
 ```bash
-git -C <worktree_path> diff --stat <merge_base>..HEAD
+git -C <worktree_path> diff --no-renames --stat <merge_base>..HEAD
 ```
 ```bash
-git -C <worktree_path> diff --shortstat <merge_base>..HEAD
+git -C <worktree_path> diff --no-renames --shortstat <merge_base>..HEAD
 ```
 ```bash
 git -C <worktree_path> log --oneline <merge_base>..HEAD
@@ -83,7 +83,7 @@ git -C <worktree_path> log --oneline <merge_base>..HEAD
 
 For large PRs (>50 changed files or >3000 lines changed), only include the diff stat in agent prompts and let agents fetch details themselves. For smaller PRs, also capture the full diff:
 ```bash
-git -C <worktree_path> diff <merge_base>..HEAD
+git -C <worktree_path> diff --no-renames <merge_base>..HEAD
 ```
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
@@ -112,8 +112,8 @@ IMPORTANT instructions for this review:
 - All git commands must use: git -C <worktree_path> ...
 - All file reads must use absolute paths under <worktree_path>/
 - Your review scope is the diff range: <merge_base>..HEAD
-- Use `git -C <worktree_path> diff <merge_base>..HEAD` to see the full diff
-- Use `git -C <worktree_path> diff --name-only <merge_base>..HEAD` for changed file list
+- Use `git -C <worktree_path> diff --no-renames <merge_base>..HEAD` to see the full diff
+- Use `git -C <worktree_path> diff --no-renames --name-only <merge_base>..HEAD` for changed file list
 - Use `git -C <worktree_path> log <merge_base>..HEAD` for commit history
 
 <if small PR: include full_diff here>

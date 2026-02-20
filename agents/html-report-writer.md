@@ -73,19 +73,6 @@ You generate a self-contained HTML report from structured PR review data. You re
         diff2htmlUi.highlightCode();
       }
     });
-    document.querySelectorAll('.copy-md').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var id = btn.getAttribute('data-issue');
-        var mdScript = document.querySelector('script[type="text/markdown"][data-for="' + id + '"]');
-        if (mdScript) {
-          navigator.clipboard.writeText(mdScript.textContent.trim()).then(function() {
-            btn.textContent = 'Copied!';
-            btn.classList.add('copied');
-            setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-          });
-        }
-      });
-    });
   });
   </script>
 </body>
@@ -183,7 +170,6 @@ After each tier's closing `</details>`, add a `<p class="back-to-top"><a href="#
     <span class="title">Issue title</span>
     <span class="tag">reviewer-name</span>
     <span class="tag">severity / category</span>
-    <button class="copy-md" data-issue="P0-1" title="Copy as Markdown">Copy</button>
   </div>
   <div class="card-body">
     <p><span class="label">File:</span> <span class="file-path" title="path/to/file.ext:42-48">file.ext:42-48</span></p>
@@ -199,25 +185,10 @@ RAW GIT DIFF OUTPUT HERE — VERBATIM, NO HTML-ESCAPING
       </script>
     </details>
   </div>
-  <script type="text/markdown" data-for="P0-1">
-## [P0-1] Issue title
-
-**Severity:** P0 — Must Fix
-**File:** `path/to/file.ext:42-48`
-**Reviewer:** reviewer-name
-
-### Problem
-description (with `backtick` code refs, not <code> tags)
-
-### Suggested Fix
-suggestion (with `backtick` code refs, not <code> tags)
-  </script>
 </div>
 ```
 
-Each `.card` must have an `id` attribute matching the issue ID (e.g., `id="P0-1"`) for TOC anchor navigation. The `<button class="copy-md">` in `.card-header` copies a pre-built markdown description of the issue to the clipboard (see JS section). The `data-issue` attribute must match the card's `id`.
-
-**Markdown `<script>` block:** Each card contains a `<script type="text/markdown" data-for="ISSUE-ID">` with the issue formatted as markdown. The report writer must generate this block using **markdown formatting** — backticks for inline code, fenced code blocks for multi-line code — NOT HTML tags like `<code>` or `<pre>`. Use the same text content as the Problem and Fix sections but with markdown syntax instead of HTML. The **full file path** must be used (not the basename shown in the HTML card). Do **not** include diff content in the markdown — it's too large and Claude Code can read the file directly. The `data-diff-id` value must also match the issue ID. **Diff expand behavior is tier-conditional:** P0 and P1 diffs get the `open` attribute so they are expanded by default; P2 and nitpick diffs start collapsed (no `open` attribute) — users click to expand on demand. The diff `<summary>` visible text MUST show only `Diff: basename.ext` — extract just the filename from the path. The `title` attribute carries the full path for hover display.
+Each `.card` must have an `id` attribute matching the issue ID (e.g., `id="P0-1"`) for TOC anchor navigation. The `data-diff-id` value must also match the issue ID. **Diff expand behavior is tier-conditional:** P0 and P1 diffs get the `open` attribute so they are expanded by default; P2 and nitpick diffs start collapsed (no `open` attribute) — users click to expand on demand. The diff `<summary>` visible text MUST show only `Diff: basename.ext` — extract just the filename from the path. The `title` attribute carries the full path for hover display.
    - WRONG: `<summary title="lib/src/main/com/foo/Bar.kt">Diff: lib/src/main/com/foo/Bar.kt</summary>`
    - RIGHT: `<summary title="lib/src/main/com/foo/Bar.kt">Diff: Bar.kt</summary>`
 
@@ -267,10 +238,6 @@ details summary h2 { display: inline; font-size: 1.125rem; }
 .card-header .id { font-weight: 700; font-family: monospace; }
 .card-header .title { font-weight: 600; }
 .card-header .tag { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 2rem; background: #f6f8fa; border: 1px solid #d0d7de; }
-/* Copy-as-markdown button */
-.copy-md { margin-left: auto; font-size: 0.6875rem; padding: 0.125rem 0.5rem; border: 1px solid #d0d7de; border-radius: 4px; background: #f6f8fa; color: #656d76; cursor: pointer; font-weight: 600; white-space: nowrap; }
-.copy-md:hover { background: #eaeef2; color: #1f2328; }
-.copy-md.copied { background: #dafbe1; color: #116329; border-color: #116329; }
 .card-body p { margin-bottom: 0.5rem; }
 .card-body .label { font-weight: 600; color: #656d76; }
 .diff-container { margin-top: 0.75rem; }
@@ -336,7 +303,7 @@ html { scroll-behavior: smooth; }
 .toc-tier { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 /* Print stylesheet */
 @media print {
-  .fab-top, .diff-toolbar, .back-to-top, .copy-md { display: none; }
+  .fab-top, .diff-toolbar, .back-to-top { display: none; }
   details { display: block !important; }
   details > summary { list-style: none; }
   details > summary::-webkit-details-marker { display: none; }

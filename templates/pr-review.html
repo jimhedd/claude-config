@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{TITLE}}</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+  <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.5; color: #1f2328; background: #f6f8fa; padding: 2rem; }
+.container { max-width: 960px; margin: 0 auto; }
+header { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 1.5rem; margin-bottom: 1rem; }
+header h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+header .meta { color: #656d76; font-size: 0.875rem; }
+.additions { color: #1a7f37; }
+.deletions { color: #cf222e; }
+.summary { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 2rem; font-size: 0.8125rem; font-weight: 600; }
+.badge-approve { background: #dafbe1; color: #116329; }
+.badge-request-changes { background: #ffebe9; color: #82071e; }
+.badge-overall { font-size: 1rem; padding: 0.375rem 1rem; }
+.chip { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 2rem; font-size: 0.75rem; font-weight: 600; border: 1px solid; }
+.chip-p0 { border-color: #cf222e; color: #cf222e; }
+.chip-p1 { border-color: #bf8700; color: #9a6700; }
+.chip-p2 { border-color: #0969da; color: #0969da; }
+.chip-nitpick { border-color: #656d76; color: #656d76; }
+.chip-zero { opacity: 0.4; }
+details { margin-bottom: 1rem; }
+details summary { cursor: pointer; }
+details summary h2 { display: inline; font-size: 1.125rem; }
+.tier-p0 summary h2 { color: #cf222e; }
+.tier-p1 summary h2 { color: #9a6700; }
+.tier-p2 summary h2 { color: #0969da; }
+.tier-nitpick summary h2 { color: #656d76; }
+.tier-p0 .card { border-left: 3px solid #cf222e; }
+.tier-p1 .card { border-left: 3px solid #bf8700; }
+.tier-p2 .card { border-left: 3px solid #0969da; }
+.tier-nitpick .card { border-left: 3px solid #656d76; }
+.card { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 1rem 1.5rem; margin: 0.75rem 0; }
+.card-header { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; margin-bottom: 0.75rem; }
+.card-header .id { font-weight: 700; font-family: monospace; }
+.card-header .title { font-weight: 600; }
+.card-header .tag { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 2rem; background: #f6f8fa; border: 1px solid #d0d7de; }
+.card-body p { margin-bottom: 0.5rem; }
+.card-body .label { font-weight: 600; color: #656d76; }
+.diff-container { margin-top: 0.75rem; }
+.diff-container summary { font-size: 0.8125rem; color: #656d76; font-family: monospace; cursor: pointer; }
+.diff-viewer .d2h-wrapper { border-radius: 6px; }
+.diff-viewer .d2h-file-header { display: none; }
+.diff-viewer .d2h-file-wrapper { border: none; margin: 0; }
+.diff-viewer { max-height: 400px; overflow: auto; border: 1px solid #d0d7de; border-radius: 6px; margin-top: 0.25rem; position: relative; isolation: isolate; }
+.diff-container summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.card-body .file-path { font-family: monospace; font-size: 0.8125rem; word-break: break-all; }
+.summary { gap: 0.5rem 0.75rem; }
+.summary .divider { width: 1px; height: 1.5rem; background: #d0d7de; margin: 0 0.25rem; }
+.card-body .fix { background: #dafbe1; border-left: 3px solid #1a7f37; padding: 0.5rem 0.75rem; border-radius: 4px; margin-top: 0.25rem; }
+.toc { background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+.toc ul { list-style: none; padding-left: 1rem; margin-top: 0.25rem; }
+.toc li { padding: 0.125rem 0; font-size: 0.875rem; }
+.toc a { color: #0969da; text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.toc a.toc-p0 { color: #cf222e; }
+.toc a.toc-p1 { color: #9a6700; }
+.toc a.toc-p2 { color: #0969da; }
+.toc a.toc-nitpick { color: #656d76; }
+.summary-group { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.card-body code { font-family: monospace; font-size: 0.8125rem; background: #f6f8fa; padding: 0.125rem 0.375rem; border-radius: 3px; border: 1px solid #d0d7de; }
+.card-body pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 0.75rem 1rem; overflow-x: auto; margin: 0.5rem 0; }
+.card-body pre code { background: none; border: none; padding: 0; font-size: 0.8125rem; line-height: 1.6; }
+.card-body .fix pre { background: rgba(255,255,255,0.5); border-color: rgba(0,0,0,0.1); }
+html { scroll-behavior: smooth; }
+.card[id] { scroll-margin-top: 1rem; }
+.card[id]:target { box-shadow: -4px 0 0 0 #0969da, 0 0 0 1px #0969da; transition: box-shadow 0.3s ease; }
+.card-body .fix code { background: rgba(255,255,255,0.6); border-color: rgba(0,0,0,0.1); }
+@media (max-width: 700px) {
+  .summary .divider { display: none; }
+  .summary { justify-content: center; }
+}
+.back-to-top { text-align: right; margin: 0.25rem 0 1rem; }
+.back-to-top a { font-size: 0.75rem; color: #656d76; text-decoration: none; }
+.back-to-top a:hover { text-decoration: underline; }
+.fab-top { position: fixed; bottom: 2rem; right: 2rem; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: #fff; border: 1px solid #d0d7de; color: #656d76; font-size: 1.25rem; text-decoration: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.12); z-index: 100; }
+.fab-top:hover { background: #f6f8fa; color: #1f2328; border-color: #1f2328; }
+.toc-group { margin-top: 0.5rem; }
+.toc-tier { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.copy-md { margin-left: auto; font-size: 0.6875rem; padding: 0.125rem 0.5rem; border: 1px solid #d0d7de; border-radius: 4px; background: #f6f8fa; color: #656d76; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.copy-md:hover { background: #eaeef2; color: #1f2328; }
+.copy-md.copied { background: #dafbe1; color: #116329; border-color: #116329; }
+.copy-all-md { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border: 1px solid #d0d7de; border-radius: 4px; background: #f6f8fa; color: #656d76; cursor: pointer; font-weight: 600; white-space: nowrap; float: right; margin-top: 0.25rem; }
+.copy-all-md:hover { background: #eaeef2; color: #1f2328; }
+.copy-all-md.copied { background: #dafbe1; color: #116329; border-color: #116329; }
+.card-focused { outline: 2px solid #0969da; outline-offset: 2px; }
+.kbd-legend { position: fixed; bottom: 2rem; left: 2rem; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 100; line-height: 1.8; }
+.kbd-legend kbd { display: inline-block; padding: 0.1rem 0.4rem; border: 1px solid #d0d7de; border-radius: 3px; background: #f6f8fa; font-family: monospace; font-size: 0.6875rem; }
+.time-ago { color: #656d76; font-style: italic; }
+.time-ago.stale { background: #fff8c5; color: #9a6700; padding: 0.125rem 0.5rem; border-radius: 2rem; font-style: normal; font-weight: 600; font-size: 0.75rem; margin-left: 0.5rem; }
+@media print {
+  .fab-top, .back-to-top, .copy-md, .copy-all-md, .kbd-legend { display: none; }
+  details { display: block !important; }
+  details > summary { list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] > summary ~ * { display: block; }
+  body { background: #fff; padding: 0; }
+  .container { max-width: 100%; }
+  .diff-viewer { max-height: none; overflow: visible; }
+}
+  </style>
+</head>
+<body>
+  <div class="container">
+{{BODY}}
+  </div>
+  <a href="#" class="fab-top" title="Back to top">&#x2191;</a>
+  <div class="kbd-legend" hidden>
+    <strong>Keyboard shortcuts</strong>
+    <div><kbd>j</kbd> / <kbd>k</kbd> — next / prev issue</div>
+    <div><kbd>c</kbd> — copy current issue</div>
+    <div><kbd>?</kbd> — toggle this help</div>
+  </div>
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.copy-md').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-issue');
+        var mdScript = document.querySelector('script[type="text/markdown"][data-for="' + id + '"]');
+        if (mdScript) {
+          navigator.clipboard.writeText(mdScript.textContent.trim()).then(function() {
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+          });
+        }
+      });
+    });
+    document.querySelectorAll('.diff-viewer').forEach(function(el) {
+      var id = el.getAttribute('data-diff-id');
+      var diffScript = document.querySelector('script[data-for="' + id + '"]');
+      if (diffScript) {
+        var diff2htmlUi = new Diff2HtmlUI(el, diffScript.textContent, {
+          drawFileList: false,
+          fileListToggle: false,
+          fileContentToggle: false,
+          matching: 'lines',
+          outputFormat: 'line-by-line',
+          highlight: true,
+          renderNothingWhenEmpty: true
+        });
+        diff2htmlUi.draw();
+        diff2htmlUi.highlightCode();
+      }
+    });
+    var copyAllBtn = document.querySelector('.copy-all-md');
+    if (copyAllBtn) {
+      copyAllBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var mdScripts = document.querySelectorAll('script[type="text/markdown"]');
+        var parts = [];
+        mdScripts.forEach(function(s) { parts.push(s.textContent.trim()); });
+        var text = parts.join('\n\n---\n\n');
+        navigator.clipboard.writeText(text).then(function() {
+          copyAllBtn.textContent = 'Copied!';
+          copyAllBtn.classList.add('copied');
+          setTimeout(function() { copyAllBtn.textContent = 'Copy All'; copyAllBtn.classList.remove('copied'); }, 1500);
+        });
+      });
+    }
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.card[id]'));
+    var focusIdx = -1;
+    var legend = document.querySelector('.kbd-legend');
+    function focusCard(idx) {
+      if (idx < 0 || idx >= cards.length) return;
+      if (focusIdx >= 0 && focusIdx < cards.length) cards[focusIdx].classList.remove('card-focused');
+      focusIdx = idx;
+      cards[focusIdx].classList.add('card-focused');
+      cards[focusIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    document.addEventListener('keydown', function(e) {
+      var tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'j') { focusCard(focusIdx + 1); e.preventDefault(); }
+      else if (e.key === 'k') { focusCard(Math.max(0, focusIdx - 1)); e.preventDefault(); }
+      else if (e.key === 'c' && focusIdx >= 0) {
+        var btn = cards[focusIdx].querySelector('.copy-md');
+        if (btn) btn.click();
+        e.preventDefault();
+      }
+      else if (e.key === '?') {
+        if (legend) legend.hidden = !legend.hidden;
+        e.preventDefault();
+      }
+    });
+    var timeAgo = document.querySelector('.time-ago');
+    if (timeAgo) {
+      var generated = new Date(timeAgo.getAttribute('data-generated'));
+      function updateTimeAgo() {
+        var diff = Math.floor((Date.now() - generated.getTime()) / 1000);
+        var text;
+        if (diff < 60) text = 'just now';
+        else if (diff < 3600) text = Math.floor(diff / 60) + 'm ago';
+        else if (diff < 86400) text = Math.floor(diff / 3600) + 'h ago';
+        else text = Math.floor(diff / 86400) + 'd ago';
+        if (diff > 3600) {
+          timeAgo.textContent = text + ' — may be outdated';
+          timeAgo.classList.add('stale');
+        } else {
+          timeAgo.textContent = '(' + text + ')';
+          timeAgo.classList.remove('stale');
+        }
+      }
+      updateTimeAgo();
+      setInterval(updateTimeAgo, 60000);
+    }
+  });
+  </script>
+</body>
+</html>

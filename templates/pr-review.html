@@ -57,6 +57,10 @@ details summary h2 { display: inline; font-size: 1.125rem; }
 .diff-viewer.expanded { max-height: none; }
 .diff-expand-btn { display: block; width: 100%; padding: 0.25rem; font-size: 0.6875rem; color: #8b949e; background: linear-gradient(transparent, #161b22 60%); border: none; cursor: pointer; text-align: center; margin-top: -1.5rem; position: relative; z-index: 1; }
 .diff-expand-btn:hover { color: #e6edf3; }
+.diff-viewer .d2h-code-linenumber { background: transparent; border-color: transparent; }
+.diff-viewer .d2h-ins.d2h-code-linenumber { background: rgba(46, 160, 67, 0.3); }
+.diff-viewer .d2h-del.d2h-code-linenumber { background: rgba(248, 81, 73, 0.2); }
+.diff-viewer .d2h-info.d2h-code-linenumber { background: rgba(56, 139, 253, 0.1); }
 .card-body .file-path { font-family: monospace; font-size: 0.8125rem; word-break: break-all; }
 .summary .divider { width: 1px; height: 1.5rem; background: #30363d; margin: 0 0.25rem; }
 .card-body .fix { background: #12261e; border-left: 3px solid #3fb950; padding: 0.5rem 0.75rem; border-radius: 4px; margin-top: 0.25rem; }
@@ -156,6 +160,10 @@ html { scroll-behavior: smooth; }
   .d2h-dark-color-scheme .d2h-code-side-line { background: #fff !important; color: #1f2328 !important; border-color: #d0d7de !important; }
   .d2h-dark-color-scheme .d2h-del { background: #ffebe9 !important; }
   .d2h-dark-color-scheme .d2h-ins { background: #dafbe1 !important; }
+  .d2h-dark-color-scheme .d2h-code-linenumber { background: transparent !important; border-color: transparent !important; }
+  .d2h-dark-color-scheme .d2h-ins.d2h-code-linenumber { background: #dcffe4 !important; }
+  .d2h-dark-color-scheme .d2h-del.d2h-code-linenumber { background: #ffebe9 !important; }
+  .d2h-dark-color-scheme .d2h-info.d2h-code-linenumber { background: #ddf4ff !important; }
   .diff-viewer { border-color: #d0d7de !important; }
 }
   </style>

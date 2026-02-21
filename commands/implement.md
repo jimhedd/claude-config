@@ -64,11 +64,20 @@ If any step fails, stop and report the error.
 Set:
 
 - `iteration = 0`
-- `max_iterations = 5`
+- `max_iterations = 7`
 
 Repeat until all reviewers approve or max iterations reached.
 
 ### 3.1 Run all reviewers in parallel
+
+Before spawning agents, capture diff statistics:
+
+```bash
+git -C {repo_root} diff --no-renames --stat {base_hash}..HEAD
+git -C {repo_root} diff --no-renames --shortstat {base_hash}..HEAD
+```
+
+Also compute the diff size: count changed files and total changed lines. If the diff is **small** (<50 files AND <3000 lines), capture the full inline diff to include in the prompt. If the diff is **large** (>=50 files OR >=3000 lines), do NOT include the inline diff — agents will fetch it themselves.
 
 Run these 4 subagents every iteration:
 
@@ -81,36 +90,52 @@ Each reviewer prompt must include:
 
 - compact plan summary from `{plan_contents}`
 - commit context: `git -C {repo_root} log {base_hash}..HEAD`
-- review range: `git -C {repo_root} diff {base_hash}..HEAD`
+- diff stat output (`--stat` and `--shortstat`)
+- for small diffs: inline diff from `git -C {repo_root} diff --no-renames {base_hash}..HEAD`
+- for large diffs: instruction to fetch the diff themselves
 - instruction to follow that reviewer's required output format exactly
+- the following file-read and git instructions block:
 
-### 3.2 Parse verdicts
+```
+IMPORTANT instructions for this review:
+- All file reads must use absolute paths under {repo_root}/
+- Your review scope is the diff range: {base_hash}..HEAD
+- Use `git -C {repo_root} diff --no-renames {base_hash}..HEAD` to see the full diff
+- Use `git -C {repo_root} diff --no-renames --name-only {base_hash}..HEAD` for changed file list
+- Use `git -C {repo_root} log {base_hash}..HEAD` for commit history
+- Read files under {repo_root}/ to examine surrounding context beyond the diff
+```
 
-For each reviewer, parse exactly one verdict header:
+### 3.2 Parse, retry, and classify all issues
 
-- `### Verdict: APPROVE`
-- `### Verdict: REQUEST_CHANGES`
-
-If output is unparseable, rerun that reviewer once. If still unparseable, stop for manual intervention.
+1. For each reviewer, attempt to parse:
+   - Exactly one verdict: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
+   - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, category, problem, suggestion
+   - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully. Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
+2. **Parse failure handling**: if a reviewer's output is unparseable, rerun that reviewer once. If still unparseable on retry, stop and report the reviewer name for manual intervention.
+3. Classify every successfully parsed issue into P0/P1/P2/nitpick. Classification rules are **scoped by source reviewer** — the reviewer that produced the issue determines which rule applies:
+   - **P0**: bug-reviewer severity=high (any category), bug-reviewer severity=medium AND category in {security, data-integrity, race-condition}, architecture-reviewer severity=high
+   - **P1**: bug-reviewer severity=medium (remaining), bug-reviewer severity=low AND category in {security, data-integrity}, architecture-reviewer severity=medium, test-reviewer severity=high, code-quality-reviewer severity=high
+   - **P2**: bug-reviewer severity=low (remaining), architecture-reviewer severity=low, test-reviewer severity=medium or low, code-quality-reviewer severity=medium or low
+   - **Nitpick**: any reviewer severity=nitpick
+4. Override the overall verdict: `REQUEST_CHANGES` if any P0 or P1 issue exists, `APPROVE` otherwise — regardless of what the individual agents said.
 
 ### 3.3 Decision
 
-- If all 4 are `APPROVE`: exit loop and finalize.
-- If any reviewer is `REQUEST_CHANGES`:
-  - merge and prioritize blocking issues
-  - Before implementing fixes, deduplicate findings across reviewers:
-    - If multiple reviewers flag the same file:line range, merge into one fix item
-      and note which reviewers flagged it
-    - Prioritize by: P0 (bug high, bug medium+security/data-integrity/race-condition,
-      arch high) > P1 (remaining medium bugs, arch medium, test high, quality high) > P2
-    - Address P0 items first, then P1, then P2 if iteration budget remains
+- If classified verdict is `APPROVE` (zero P0 and zero P1): exit loop and finalize.
+- If classified verdict is `REQUEST_CHANGES`:
+  - Before implementing fixes, deduplicate P0/P1/P2 findings across reviewers:
+    - If multiple reviewers flag the same file + line(s) range, merge into one fix item
+      and note which reviewers flagged it (use `File` + `Line(s)` fields for matching; nitpick-tier items are excluded from deduplication)
+  - Prioritize P0 > P1 > P2
+  - Address P0 items first, then P1, then P2 if iteration budget remains
   - implement fixes
   - add/update regression tests when fixing bug/correctness findings (when feasible)
   - stage specific files only
   - if staged diff is non-empty, create a remediation commit with substantive body
-  - continue to next review iteration
+  - increment `iteration` and continue to next review iteration
 
-If `iteration > max_iterations`, stop and report unresolved issues.
+If `iteration >= max_iterations` and classified verdict is not `APPROVE`, stop and report unresolved issues.
 
 ## Phase 4: Optional Squash and Finalize
 

@@ -63,6 +63,7 @@ The static template (`~/.claude/templates/pr-review.html`) provides all CSS and 
 - **Header:** `.meta`, `.additions`, `.deletions`, `.time-ago` (with `data-generated` attr)
 - **Summary bar:** `.badge`, `.badge-approve`, `.badge-request-changes`, `.badge-overall`, `.chip`, `.chip-p0`/`.chip-p1`/`.chip-p2`/`.chip-nitpick`, `.chip-zero`, `.divider`, `.summary-group`
 - **TOC:** `.toc`, `.toc-group`, `.toc-tier`, `.toc-p0`/`.toc-p1`/`.toc-p2`/`.toc-nitpick`, `.copy-all-md`
+- **Toggle bar:** `.toggle-bar`, `.toggle-btn`, `.toggle-tiers`, `.toggle-diffs`
 - **Tier sections:** `.tier-p0`/`.tier-p1`/`.tier-p2`/`.tier-nitpick`, `.back-to-top`
 - **Cards:** `.card`, `.card-header`, `.id`, `.title`, `.tag`, `.card-body`, `.label`, `.file-path`, `.fix`, `.copy-md` (with `data-issue` attr)
 - **Diffs:** `.diff-container`, `.diff-viewer` (with `data-diff-id` attr)
@@ -105,39 +106,53 @@ Flex row of badges with visual dividers between the three groups. Wrap the revie
 
 ### Table of Contents
 
-Generate a `<nav class="toc">` section between the summary bar and `<main>`. Group issues by tier with sub-headings — only include tier groups that have issues (omit empty tiers from the TOC). Each `.card` must have a matching `id` attribute. Add a tier-specific CSS class to each TOC link (`toc-p0`, `toc-p1`, `toc-p2`, `toc-nitpick`) so links are color-coded by severity. Include a `Copy All` button as the first child after `<summary>` (inside the `<details>` body, not inside `<summary>`) that copies every issue's markdown, separated by `---` dividers. Omit the TOC entirely in the zero-issues case.
+Generate a `<nav class="toc">` section between the summary bar and `<main>`. Group issues by tier with sub-headings — only include tier groups that have issues (omit empty tiers from the TOC). Each `.card` must have a matching `id` attribute. Add a tier-specific CSS class to each TOC link (`toc-p0`, `toc-p1`, `toc-p2`, `toc-nitpick`) so links are color-coded by severity. Include a `Copy All` button **inside the `<summary>` tag** (not after it) so it participates in the flex layout. The button must use `type="button"` to prevent implicit form submission semantics. The template JS calls `e.stopPropagation()` and `e.preventDefault()` on click to prevent the `<details>` toggle. Omit the TOC entirely in the zero-issues case.
+
+**TOC tier labels must include counts** — e.g., `P0 — Must Fix (1)` instead of just `P0 — Must Fix`. The count is the number of issues in that tier.
 
 ```html
 <nav class="toc">
   <details open>
-    <summary><strong>Issues (N)</strong></summary>
-    <button class="copy-all-md" title="Copy all issues as Markdown">Copy All</button>
+    <summary><strong>Issues (N)</strong> <button type="button" class="copy-all-md" title="Copy all issues as Markdown">Copy All</button></summary>
     <div class="toc-group">
-      <span class="toc-tier toc-p0">P0 — Must Fix</span>
+      <span class="toc-tier toc-p0">P0 — Must Fix (1)</span>
       <ul>
         <li><a href="#P0-1" class="toc-p0">[P0-1] Issue title...</a></li>
       </ul>
     </div>
     <div class="toc-group">
-      <span class="toc-tier toc-p1">P1 — Should Fix</span>
+      <span class="toc-tier toc-p1">P1 — Should Fix (1)</span>
       <ul>
         <li><a href="#P1-1" class="toc-p1">[P1-1] Issue title...</a></li>
       </ul>
     </div>
     <div class="toc-group">
-      <span class="toc-tier toc-p2">P2 — Consider Fixing</span>
+      <span class="toc-tier toc-p2">P2 — Consider Fixing (1)</span>
       <ul>
         <li><a href="#P2-1" class="toc-p2">[P2-1] Issue title...</a></li>
       </ul>
     </div>
     <div class="toc-group">
-      <span class="toc-tier toc-nitpick">Nitpick</span>
+      <span class="toc-tier toc-nitpick">Nitpick (1)</span>
       <ul>
         <li><a href="#N-1" class="toc-nitpick">[N-1] Issue title...</a></li>
       </ul>
     </div>
   </details>
 </nav>
+```
+
+### Toggle Bar
+
+Emit a `<div class="toggle-bar">` between the TOC `</nav>` and `<main>` with 4 static buttons for expand/collapse all sections and diffs. Omit in the zero-issues case.
+
+```html
+<div class="toggle-bar">
+  <button type="button" class="toggle-btn toggle-tiers" data-action="expand">Expand All Sections</button>
+  <button type="button" class="toggle-btn toggle-tiers" data-action="collapse">Collapse All Sections</button>
+  <button type="button" class="toggle-btn toggle-diffs" data-action="expand">Expand All Diffs</button>
+  <button type="button" class="toggle-btn toggle-diffs" data-action="collapse">Collapse All Diffs</button>
+</div>
 ```
 
 ### Tier Sections
@@ -211,4 +226,4 @@ The template provides a `.kbd-legend` div and full keyboard navigation JS. The J
 
 ### Zero-Issues Case
 
-If no issues exist, omit the `<nav class="toc">` and `<main>` entirely from the body fragment. The summary section shows all APPROVE badges and `0 P0, 0 P1, 0 P2, 0 nitpick`. No diff sections appear and no JS errors should occur (the template JS handles empty card lists gracefully).
+If no issues exist, omit the `<nav class="toc">`, `<div class="toggle-bar">`, and `<main>` entirely from the body fragment. The summary section shows all APPROVE badges and `0 P0, 0 P1, 0 P2, 0 nitpick`. No diff sections appear and no JS errors should occur (the template JS handles empty card lists gracefully).

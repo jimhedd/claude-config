@@ -40,3 +40,5 @@ paste-cache/
 plans/
 tasks/
 plugins/
+
+scripts/__pycache__/

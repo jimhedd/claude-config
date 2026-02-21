@@ -44,3 +44,4 @@ plugins/
 scripts/__pycache__/
 teams/
 backups/
+image-cache/

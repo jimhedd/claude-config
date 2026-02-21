@@ -11,6 +11,14 @@ allowedTools:
   - Bash(git log:*)
   - Bash(git status:*)
   - Bash(git show:*)
+  - Bash(diff:*)
+  - Bash(cat:*)
+  - Bash(head:*)
+  - Bash(tail:*)
+  - Bash(wc:*)
+  - Bash(sort:*)
+  - Bash(jq:*)
+  - Bash(ls:*)
   - WebFetch
 ---
 

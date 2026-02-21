@@ -28,6 +28,7 @@ import subprocess
 import sys
 
 CONTEXT_PADDING = 5
+TRIM_THRESHOLD_FACTOR = 3
 
 
 def usage():
@@ -117,6 +118,92 @@ def parse_hunk_header(line: str) -> tuple[int, int, int, int] | None:
     return (old_start, old_count, new_start, new_count)
 
 
+def trim_hunk_to_range(
+    header_line: str, body: list[str],
+    old_start: int, new_start: int,
+    target_start: int, target_end: int,
+) -> tuple[str, list[str]]:
+    """Trim a hunk's body to only the lines overlapping [target_start, target_end].
+
+    target_start/target_end are new-file line numbers (already padded by caller).
+    Returns (new_header, trimmed_body).
+    """
+    # Step 1: Annotate each body line with cursor values BEFORE processing
+    annotated: list[tuple[str, int, int]] = []  # (line_text, cur_new_before, cur_old_before)
+    cur_new = new_start
+    cur_old = old_start
+    for line in body:
+        annotated.append((line, cur_new, cur_old))
+        if line.startswith("+"):
+            cur_new += 1
+        elif line.startswith("-"):
+            cur_old += 1
+        elif line.startswith("\\"):
+            pass  # no-newline marker, advances neither
+        else:
+            # context line (space prefix or empty)
+            cur_new += 1
+            cur_old += 1
+
+    # Step 2: Find first/last body indices where cur_new_before is in range
+    # Only consider + and context lines (not - or \ lines)
+    first_idx = None
+    last_idx = None
+    for idx, (line, cn, _co) in enumerate(annotated):
+        if line.startswith("-") or line.startswith("\\"):
+            continue
+        if target_start <= cn <= target_end:
+            if first_idx is None:
+                first_idx = idx
+            last_idx = idx
+
+    if first_idx is None:
+        # No overlap found — return unchanged
+        return header_line, body
+
+    slice_start = first_idx
+    slice_end = last_idx
+
+    # Step 3: Boundary cleanup
+    # Walk slice_start backward to include preceding '-' lines (deletion side of a change block)
+    while slice_start > 0 and body[slice_start - 1].startswith("-"):
+        slice_start -= 1
+
+    # Include trailing '\ No newline at end of file'
+    if slice_end + 1 < len(body) and body[slice_end + 1].startswith("\\"):
+        slice_end += 1
+
+    # Step 4: Compute counts from trimmed body
+    trimmed_body = body[slice_start:slice_end + 1]
+    trimmed_new_count = 0
+    trimmed_old_count = 0
+    for line in trimmed_body:
+        if line.startswith("+"):
+            trimmed_new_count += 1
+        elif line.startswith("-"):
+            trimmed_old_count += 1
+        elif line.startswith("\\"):
+            pass
+        else:
+            # context line
+            trimmed_new_count += 1
+            trimmed_old_count += 1
+
+    # Step 5: Derive @@ header starts from cursor values at slice_start
+    trimmed_new_start = annotated[slice_start][1]  # cur_new_before
+    trimmed_old_start = annotated[slice_start][2]  # cur_old_before
+
+    # Zero-count adjustment per unified diff semantics
+    if trimmed_old_count == 0:
+        trimmed_old_start = max(0, trimmed_old_start - 1)
+    if trimmed_new_count == 0:
+        trimmed_new_start = max(0, trimmed_new_start - 1)
+
+    # Step 6: Return new header and trimmed body
+    new_header = f"@@ -{trimmed_old_start},{trimmed_old_count} +{trimmed_new_start},{trimmed_new_count} @@"
+    return new_header, trimmed_body
+
+
 def filter_diff_hunks(raw_diff: str, start_line: int, end_line: int) -> str:
     """Filter a unified diff to only include hunks overlapping the target line range.
 
@@ -197,6 +284,19 @@ def filter_diff_hunks(raw_diff: str, start_line: int, end_line: int) -> str:
     result_lines = list(file_header_lines)
     for idx in selected_indices:
         header_line, body, _, _ = hunks[idx]
+
+        # Trim large hunks to the target range
+        body_size = len(body)
+        target_span = padded_end - padded_start + 1
+        if body_size > target_span * TRIM_THRESHOLD_FACTOR:
+            parsed = parse_hunk_header(header_line)
+            if parsed:
+                old_s, _, new_s, _ = parsed
+                header_line, body = trim_hunk_to_range(
+                    header_line, body, old_s, new_s,
+                    padded_start, padded_end,
+                )
+
         result_lines.append(header_line)
         result_lines.extend(body)
 

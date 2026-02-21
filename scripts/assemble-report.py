@@ -11,6 +11,7 @@ The body file is deleted on success; preserved on failure for debugging.
 import argparse
 import html
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -32,7 +33,7 @@ def main() -> int:
     # Read template
     template = template_path.read_text(encoding="utf-8")
 
-    # Validate placeholders — each must appear exactly once
+    # Validate template placeholders — each must appear exactly once
     for placeholder in ("{{TITLE}}", "{{BODY}}"):
         count = template.count(placeholder)
         if count != 1:
@@ -50,9 +51,14 @@ def main() -> int:
 
     body_content = body_path.read_text(encoding="utf-8")
 
-    # Substitute placeholders
+    # Substitute template placeholders
     assembled = template.replace("{{TITLE}}", html.escape(args.title))
     assembled = assembled.replace("{{BODY}}", body_content)
+
+    # Replace timestamp placeholders injected by the body fragment
+    now = datetime.now(timezone.utc)
+    assembled = assembled.replace("{{GENERATED_UTC}}", now.strftime("%Y-%m-%d %H:%M UTC"))
+    assembled = assembled.replace("{{GENERATED_ISO}}", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     # Write output
     output_path = Path(args.output_file)

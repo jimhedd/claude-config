@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh pr:*), Bash(git:*), Read, Glob, Grep, Task, Write
+allowed-tools: Bash(gh pr:*), Bash(git:*), Bash(* /tmp/*), Read, Glob, Grep, Task, Write
 description: Review a GitHub pull request using 4 parallel reviewer agents with worktree isolation.
 requires-argument: true
 argument-description: PR number to review

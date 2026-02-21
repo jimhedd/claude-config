@@ -5,6 +5,14 @@ model: sonnet
 allowedTools:
   - Write
   - Bash(python3:*)
+  - Bash(diff:*)
+  - Bash(cat:*)
+  - Bash(head:*)
+  - Bash(tail:*)
+  - Bash(wc:*)
+  - Bash(sort:*)
+  - Bash(jq:*)
+  - Bash(ls:*)
 ---
 
 # HTML Report Writer
@@ -63,7 +71,7 @@ The static template (`~/.claude/templates/pr-review.html`) provides all CSS and 
 
 ### Header
 
-`<h1>` with `PR #number — title`. `<p class="meta">` with base/head refs (short SHAs), file count, `+additions / -deletions` (green/red colored). A second `<p class="meta">` line showing: `Generated: YYYY-MM-DD HH:MM UTC <span class="time-ago" data-generated="YYYY-MM-DDTHH:MM:SSZ"></span>` (use the current UTC time when the report is generated). The `data-generated` attribute must be an ISO 8601 UTC timestamp (e.g., `2026-02-20T18:05:00Z`). The `.time-ago` span starts empty and is populated by JS to show a relative timestamp like "(just now)" or "(5m ago)". If the report is older than 1 hour, it displays a yellow "may be outdated" badge instead.
+`<h1>` with `PR #number — title`. `<p class="meta">` with base/head refs (short SHAs), file count, `+additions / -deletions` (green/red colored). A second `<p class="meta">` line showing: `Generated: {{GENERATED_UTC}} <span class="time-ago" data-generated="{{GENERATED_ISO}}"></span>`. Do **not** attempt to produce the actual timestamp — the `{{GENERATED_UTC}}` and `{{GENERATED_ISO}}` placeholders are replaced with the real system-clock time by `assemble-report.py` at build time. The `.time-ago` span starts empty and is populated by JS to show a relative timestamp like "(just now)" or "(5m ago)". If the report is older than 1 hour, it displays a yellow "may be outdated" badge instead.
 
 ### Summary Bar
 

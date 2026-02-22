@@ -122,6 +122,7 @@ Hard requirements:
 - Keep the response concise (target <= 140 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
+- In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -135,7 +136,9 @@ Hard requirements:
 <2-3 sentences: what the code does and what behavior changed>
 
 #### Guidelines Loaded
-- <path> (<source>) [one line per file, or "None found."]
+- <path> (<source>)
+  - @<directive> -> <resolved-path> (<status>)
+[one parent line per CLAUDE.md file; indented sub-items per @ directive; or "None found."]
 
 ### Verdict: APPROVE
 
@@ -162,7 +165,9 @@ OR (approve with nitpicks):
 <2-3 sentences: what the code does and what behavior changed>
 
 #### Guidelines Loaded
-- <path> (<source>) [one line per file, or "None found."]
+- <path> (<source>)
+  - @<directive> -> <resolved-path> (<status>)
+[one parent line per CLAUDE.md file; indented sub-items per @ directive; or "None found."]
 
 ### Verdict: APPROVE
 
@@ -193,7 +198,9 @@ OR (request changes):
 <2-3 sentences: what the code does and what behavior changed>
 
 #### Guidelines Loaded
-- <path> (<source>) [one line per file, or "None found."]
+- <path> (<source>)
+  - @<directive> -> <resolved-path> (<status>)
+[one parent line per CLAUDE.md file; indented sub-items per @ directive; or "None found."]
 
 ### Verdict: REQUEST_CHANGES
 

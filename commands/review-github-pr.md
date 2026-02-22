@@ -98,6 +98,19 @@ Probe for expected CLAUDE.md files:
    Record each path that exists as `expected_guidelines`.
 3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
    for cross-checking only.
+4. For each path in `expected_guidelines`, read its content at merge-base:
+   `git -C <worktree_path> show <merge_base>:<path>`
+   Scan for @ directive candidates using the same rules reviewers use (step 3.3.1):
+   - `@` must be the first non-whitespace character on the line
+   - The `@<path>` token must NOT be inside a fenced code block (``` or ~~~)
+   - The `@<path>` token must NOT be inside an inline code span (backticks)
+   - `<path>` must consist only of safe path characters (`A-Za-z0-9._/~-`)
+   - Reject paths containing `..` as a path component
+   - Reject absolute paths (starting with `/`)
+   Lines not matching all criteria are skipped (not recorded as expected directives)
+   For each candidate, resolve the path relative to the CLAUDE.md's directory.
+   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path}).
+   This is orchestrator-internal only — do NOT include in reviewer prompts.
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
@@ -158,7 +171,12 @@ Parse each agent's output to extract:
 
 If an agent's output cannot be parsed, warn about that reviewer but continue with the others. If ALL agents fail, stop and report the error.
 
-For each reviewer, extract and cross-check the `#### Guidelines Loaded` section against `expected_guidelines`:
+For each reviewer, extract and cross-check the `#### Guidelines Loaded` section:
+- **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`
+  with no leading indentation before the `-`. These are CLAUDE.md file paths.
+- **Directive sub-items**: indented bullets matching `  - @<directive> -> <resolved-path> (<status>)`
+  (with 2+ spaces before `-`). These belong to the nearest preceding guideline entry.
+Cross-check guideline entries against `expected_guidelines`:
 - Section missing entirely: log warning
   "Warning: <reviewer-name> did not report Guidelines Loaded — CLAUDE.md context unverifiable"
 - `expected_guidelines` is non-empty but reviewer reports "None found": log warning
@@ -171,6 +189,19 @@ For each reviewer, extract and cross-check the `#### Guidelines Loaded` section 
 - Source is not `merge-base` in an orchestrated flow (i.e., merge_base was provided
   in the prompt): log warning
   "Warning: <reviewer-name> loaded <path> from working tree instead of merge-base"
+These are warnings only — do not trigger parse failure, retry, or verdict override.
+
+For each entry in `expected_directives`, check if the reviewer reported a matching
+`@<directive>` sub-item under the corresponding parent path:
+- Directive not reported at all: log warning
+  "Warning: <reviewer-name> did not report expected @ directive: @<directive> in <parent-path>"
+- Directive reported with any status (`resolved`, `truncated`, `not-found`,
+  `cycle-skipped`): no warning (reviewer acknowledged the directive)
+- Directive reported with status `budget-dropped`: log informational
+  "Info: <reviewer-name> budget-dropped @ directive: @<directive> in <parent-path>"
+- Reviewer reports @ directives not in `expected_directives`: no warning
+  (reviewer may have found directives the orchestrator's simplified heuristic missed,
+  or recursive includes that the orchestrator does not track)
 These are warnings only — do not trigger parse failure, retry, or verdict override.
 
 ### Step 6: Classify Issues into Priority Tiers

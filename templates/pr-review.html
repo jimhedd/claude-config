@@ -74,6 +74,26 @@ details summary h2 { display: inline; font-size: 1.125rem; }
 .toc a.toc-p1 { color: #d29922; }
 .toc a.toc-p2 { color: #58a6ff; }
 .toc a.toc-nitpick { color: #8b949e; }
+.guidelines { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+.guidelines details > summary { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.guidelines-status { font-size: 0.8125rem; padding: 0.125rem 0.5rem; border-radius: 2rem; font-weight: 600; }
+.guidelines-ok { color: #3fb950; }
+.guidelines-warn { color: #d29922; }
+.guidelines-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin-top: 0.5rem; }
+.guidelines-table th, .guidelines-table td { padding: 0.25rem 0.5rem; text-align: left; border-bottom: 1px solid #21262d; }
+.guidelines-table th { color: #8b949e; font-weight: 600; }
+.guidelines-expected { margin-top: 0.5rem; }
+.guidelines-expected h4, .guidelines-reviewers h4, .guidelines-warnings h4 { font-size: 0.8125rem; color: #8b949e; margin: 0.75rem 0 0.25rem; }
+.guidelines-expected ul { list-style: none; padding-left: 1rem; font-size: 0.8125rem; }
+.guidelines-expected ul ul { padding-left: 1.5rem; }
+.guidelines-expected code { font-size: 0.75rem; }
+.guidelines-warnings { margin-top: 0.5rem; }
+.guidelines-warnings ul { list-style: none; padding-left: 0; font-size: 0.8125rem; }
+.guidelines-reviewers { margin-top: 0.5rem; }
+.guidelines-notice { background: #0c2d6b; border: 1px solid #1f6feb; border-radius: 6px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; font-size: 0.8125rem; }
+.guidelines-notice strong { color: #58a6ff; }
+.guidelines-notice ul { list-style: none; padding-left: 1rem; margin-top: 0.25rem; }
+.guidelines-notice code { font-size: 0.75rem; }
 .summary-group { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .card-body code { font-family: monospace; font-size: 0.8125rem; background: #0d1117; padding: 0.125rem 0.375rem; border-radius: 3px; border: 1px solid #30363d; }
 .card-body pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 0.75rem 1rem; overflow-x: auto; margin: 0.5rem 0; }
@@ -138,7 +158,12 @@ html { scroll-behavior: smooth; }
   body { background: #fff !important; color: #1f2328 !important; padding: 0; }
   .container { max-width: 100%; }
   .diff-viewer { max-height: none; overflow: visible; }
-  header, .summary, .toc, .card, .kbd-legend { background: #fff !important; border-color: #d0d7de !important; }
+  header, .summary, .toc, .guidelines, .card, .kbd-legend { background: #fff !important; border-color: #d0d7de !important; }
+  .guidelines-notice { background: #ddf4ff !important; border-color: #54aeff !important; }
+  .guidelines-notice strong { color: #0969da !important; }
+  .guidelines-ok { color: #1a7f37 !important; }
+  .guidelines-warn { color: #9a6700 !important; }
+  .guidelines-table th, .guidelines-table td { border-color: #d0d7de !important; }
   .badge-approve { background: #dafbe1 !important; color: #116329 !important; }
   .badge-request-changes { background: #ffebe9 !important; color: #82071e !important; }
   .card-body code { background: #f6f8fa !important; border-color: #d0d7de !important; }

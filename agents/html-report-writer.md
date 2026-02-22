@@ -21,8 +21,8 @@ You generate a self-contained HTML report from structured PR review data. You re
 
 ## Instructions
 
-1. **Parse the structured review data** from the task prompt: PR metadata, verdicts, classified issues grouped by tier.
-2. **Write a body fragment** using the `Write` tool to `/tmp/pr-review-<PR_NUMBER>-body.html`. This file contains **only** the dynamic inner HTML that goes inside `<div class="container">` — specifically the `<header>`, `.summary`, `.toc` (if issues exist), and `<main>` sections. Do **not** include DOCTYPE, `<html>`, `<head>`, `<style>`, `<body>`, `<script>`, `.fab-top`, `.kbd-legend`, or any closing `</body></html>` tags — the template provides all of that. Include **empty** `<script>` placeholder tags for diffs inside the body fragment. Each diff placeholder must be exactly: `<script type="application/diff" data-for="ID"></script>` where `ID` is the issue ID (e.g., `P0-1`). Do NOT include any diff content — the helper script injects it later.
+1. **Parse the structured review data** from the task prompt: PR metadata, verdicts, classified issues grouped by tier, and guidelines data (`expected_guidelines`, `expected_directives`, `pr_added_guidelines`, per-reviewer guidelines reports, cross-check warnings).
+2. **Write a body fragment** using the `Write` tool to `/tmp/pr-review-<PR_NUMBER>-body.html`. This file contains **only** the dynamic inner HTML that goes inside `<div class="container">` — specifically the `<header>`, `.summary`, `.guidelines`, `.toc` (if issues exist), and `<main>` sections. Do **not** include DOCTYPE, `<html>`, `<head>`, `<style>`, `<body>`, `<script>`, `.fab-top`, `.kbd-legend`, or any closing `</body></html>` tags — the template provides all of that. Include **empty** `<script>` placeholder tags for diffs inside the body fragment. Each diff placeholder must be exactly: `<script type="application/diff" data-for="ID"></script>` where `ID` is the issue ID (e.g., `P0-1`). Do NOT include any diff content — the helper script injects it later.
 3. **Assemble the full HTML** by calling the assembly script:
    ```
    python3 ~/.claude/scripts/assemble-report.py /tmp/pr-review-<PR_NUMBER>-body.html <output_path> --title "PR Review: #NUMBER - TITLE"
@@ -59,7 +59,8 @@ You generate a self-contained HTML report from structured PR review data. You re
 
 The static template (`~/.claude/templates/pr-review.html`) provides all CSS and JS. Key classes available for use in the body fragment:
 
-- **Layout:** `.container` (wrapper, provided by template), `header`, `.summary`, `.toc`, `main`
+- **Layout:** `.container` (wrapper, provided by template), `header`, `.summary`, `.guidelines`, `.toc`, `main`
+- **Guidelines:** `.guidelines`, `.guidelines-status`, `.guidelines-ok`, `.guidelines-warn`, `.guidelines-table`, `.guidelines-expected`, `.guidelines-reviewers`, `.guidelines-warnings`, `.guidelines-notice`
 - **Header:** `.meta`, `.additions`, `.deletions`, `.time-ago` (with `data-generated` attr)
 - **Summary bar:** `.badge`, `.badge-approve`, `.badge-request-changes`, `.badge-overall`, `.chip`, `.chip-p0`/`.chip-p1`/`.chip-p2`/`.chip-nitpick`, `.chip-zero`, `.divider`, `.summary-group`
 - **TOC:** `.toc`, `.toc-group`, `.toc-tier`, `.toc-p0`/`.toc-p1`/`.toc-p2`/`.toc-nitpick`, `.copy-all-md`
@@ -104,9 +105,60 @@ Flex row of badges with visual dividers between the three groups. Wrap the revie
 - `<span class="divider"></span>` — vertical separator
 - Issue count chips: `1 P0`, `2 P1`, etc. Classes `chip-p0` (red border), `chip-p1` (orange), `chip-p2` (blue), `chip-nitpick` (gray). Chips with count 0 get an additional `chip-zero` class to dim them (reduced opacity).
 
+### Guidelines
+
+Generate a `<section class="guidelines">` block between the summary bar and the TOC. **Always include this section** — when zero CLAUDE.md files exist, show "No CLAUDE.md files found in ancestor directories" inside the details. Structure:
+
+```html
+<section class="guidelines">
+  <details>
+    <summary><strong>Guidelines Context</strong> <span class="guidelines-status guidelines-ok">4/4 reviewers matched</span></summary>
+    <div class="guidelines-expected">
+      <h4>Expected CLAUDE.md Files</h4>
+      <ul>
+        <li><code>CLAUDE.md</code></li>
+        <li><code>libraries/catalog-utils/CLAUDE.md</code>
+          <ul><li><code>@AGENTS.md</code> &rarr; <code>libraries/catalog-utils/AGENTS.md</code></li></ul>
+        </li>
+      </ul>
+    </div>
+    <div class="guidelines-reviewers">
+      <h4>Reviewer Reports</h4>
+      <table class="guidelines-table">
+        <tr><th>Reviewer</th><th>Files</th><th>Directives</th><th>Status</th></tr>
+        <tr><td>bug</td><td>2</td><td>1</td><td class="guidelines-ok">&#x2713; matched</td></tr>
+        <tr><td>arch</td><td>2</td><td>1</td><td class="guidelines-ok">&#x2713; matched</td></tr>
+        <tr><td>quality</td><td>2</td><td>1</td><td class="guidelines-ok">&#x2713; matched</td></tr>
+        <tr><td>tests</td><td>2</td><td>1</td><td class="guidelines-ok">&#x2713; matched</td></tr>
+      </table>
+    </div>
+    <div class="guidelines-warnings">
+      <h4>Warnings</h4>
+      <ul>
+        <li>&#x26A0; arch-reviewer loaded CLAUDE.md from working tree instead of merge-base</li>
+      </ul>
+    </div>
+  </details>
+</section>
+```
+
+Rules:
+- Use `guidelines-ok` class for the status badge when all reviewers matched; use `guidelines-warn` when any warnings exist
+- Omit `<div class="guidelines-warnings">` when no warnings
+- For reviewer table rows, use `guidelines-ok` class on matched status cells; `guidelines-warn` on cells with warnings
+- When `pr_added_guidelines` is non-empty, add a `<div class="guidelines-notice">` as the last child inside the `<details>` element — after `<div class="guidelines-warnings">` if present, otherwise after `<div class="guidelines-reviewers">`:
+  ```html
+  <div class="guidelines-notice">
+    <strong>Note:</strong> This PR adds CLAUDE.md files that were not used for review
+    (trust rule: only merge-base content is trusted):
+    <ul><li><code>services/new-service/CLAUDE.md</code></li></ul>
+  </div>
+  ```
+- When zero CLAUDE.md files exist, replace the inner content with: `<p>No CLAUDE.md files found in ancestor directories.</p>`
+
 ### Table of Contents
 
-Generate a `<nav class="toc">` section between the summary bar and `<main>`. Group issues by tier with sub-headings — only include tier groups that have issues (omit empty tiers from the TOC). Each `.card` must have a matching `id` attribute. Add a tier-specific CSS class to each TOC link (`toc-p0`, `toc-p1`, `toc-p2`, `toc-nitpick`) so links are color-coded by severity. Include a `Copy All` button **inside the `<summary>` tag** (not after it) so it participates in the flex layout. The button must use `type="button"` to prevent implicit form submission semantics. The template JS calls `e.stopPropagation()` and `e.preventDefault()` on click to prevent the `<details>` toggle. Omit the TOC entirely in the zero-issues case.
+Generate a `<nav class="toc">` section between the guidelines section and `<main>`. Group issues by tier with sub-headings — only include tier groups that have issues (omit empty tiers from the TOC). Each `.card` must have a matching `id` attribute. Add a tier-specific CSS class to each TOC link (`toc-p0`, `toc-p1`, `toc-p2`, `toc-nitpick`) so links are color-coded by severity. Include a `Copy All` button **inside the `<summary>` tag** (not after it) so it participates in the flex layout. The button must use `type="button"` to prevent implicit form submission semantics. The template JS calls `e.stopPropagation()` and `e.preventDefault()` on click to prevent the `<details>` toggle. Omit the TOC entirely in the zero-issues case.
 
 **TOC tier labels must include counts** — e.g., `P0 — Must Fix (1)` instead of just `P0 — Must Fix`. The count is the number of issues in that tier.
 
@@ -226,4 +278,4 @@ The template provides a `.kbd-legend` div and full keyboard navigation JS. The J
 
 ### Zero-Issues Case
 
-If no issues exist, omit the `<nav class="toc">`, `<div class="toggle-bar">`, and `<main>` entirely from the body fragment. The summary section shows all APPROVE badges and `0 P0, 0 P1, 0 P2, 0 nitpick`. No diff sections appear and no JS errors should occur (the template JS handles empty card lists gracefully).
+If no issues exist, omit the `<nav class="toc">`, `<div class="toggle-bar">`, and `<main>` entirely from the body fragment. The summary section shows all APPROVE badges and `0 P0, 0 P1, 0 P2, 0 nitpick`. The `<section class="guidelines">` block is **always included**, even in the zero-issues case. No diff sections appear and no JS errors should occur (the template JS handles empty card lists gracefully).

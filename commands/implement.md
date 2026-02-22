@@ -103,8 +103,27 @@ Probe for expected CLAUDE.md files:
    - Reject absolute paths (starting with `/`)
    Lines not matching all criteria are skipped (not recorded as expected directives)
    For each candidate, resolve the path relative to the CLAUDE.md's directory.
-   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path}).
+   To verify the directive target exists, use `git -C {repo_root} show {base_hash}:<resolved_path>`.
+   Do NOT use the Read tool — the same merge-base trust rule applies to orchestrator
+   directive scanning. If the file does not exist at merge-base, record the directive
+   with status `not-found` but still include it in `expected_directives` (reviewers
+   should also report it as `not-found`).
+   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path, exists_at_merge_base}).
+   Apply the same fenced code block (condition c), inline code span (condition d), and status priority rules defined in the reviewer spec (step 3.3.1 conditions and the **Status priority** block after step 3.3.8). The authoritative definition lives in the reviewer agent files; orchestrator scanning must match.
    This is orchestrator-internal only — do NOT include in reviewer prompts.
+   **Depth-2 recursive resolution**: After building the initial `expected_directives` set:
+   1. Take a snapshot of the current `expected_directives` set (first-level entries)
+   2. For each entry in that snapshot where `exists_at_merge_base` is true, read the resolved file at merge-base: `git -C {repo_root} show {base_hash}:<resolved_path>`
+   3. Scan that file for further `@` directives using the same rules
+   4. Append any found directives to `expected_directives` as second-level entries (probing each with `git show` and recording `exists_at_merge_base` accordingly)
+   5. Do NOT scan the appended second-level entries — this ensures exactly depth 2, not unbounded recursion
+   6. Do NOT recurse into `not-found` entries — they have no content to scan
+   Note: The orchestrator scans @ directives to depth 2, while reviewers resolve to depth 5. Directives found only at depth 3+ will not have orchestrator-side expectations. This is acceptable — the orchestrator cross-check is a best-effort sanity check, not a full parity verification. Reviewers reporting additional directives beyond orchestrator expectations is normal and expected for deeply nested include chains.
+5. For each directory in the ancestor chain, also check existence at HEAD:
+   `git -C {repo_root} show HEAD:<dir>/CLAUDE.md` and `git -C {repo_root} show HEAD:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C {repo_root} show HEAD:CLAUDE.md` and `git -C {repo_root} show HEAD:.claude/CLAUDE.md`)
+   If a CLAUDE.md exists at HEAD but NOT at merge-base, record it as `pr_added_guidelines`.
+   These are NOT included in `expected_guidelines` (trust rule still applies).
 
 Run these 4 subagents every iteration:
 
@@ -171,6 +190,14 @@ IMPORTANT instructions for this review:
      (reviewer may have found directives the orchestrator's simplified heuristic missed,
      or recursive includes that the orchestrator does not track)
    These are warnings only — do not trigger parse failure, retry, or verdict override.
+   After completing all cross-checks, emit a compact guidelines summary to the CLI.
+   Note: The implement command has no HTML report phase — this transient CLI summary is the
+   sole guidelines visibility point, deliberately compact to avoid noise in the review loop.
+   - If `expected_guidelines` is empty: `Guidelines: No CLAUDE.md files found in ancestor directories.`
+   - Otherwise: `Guidelines: <N> CLAUDE.md files, <M> @ directives` (counts from `expected_guidelines` and `expected_directives`)
+     - If all reviewers matched expectations: `  Reviewers: <N>/4 matched` (where N = number of reviewers with parseable output)
+     - For any warnings: emit one `  ⚠ <reviewer-name>: <warning summary>` line per warning
+   - If `pr_added_guidelines` is non-empty, append: `  PR-added (skipped): <path>, ...`
 2. **Parse failure handling**: if a reviewer's output is unparseable, rerun that reviewer once. If still unparseable on retry, stop and report the reviewer name for manual intervention.
 3. Classify every successfully parsed issue into P0/P1/P2/nitpick. Classification rules are **scoped by source reviewer** — the reviewer that produced the issue determines which rule applies:
    - **P0**: bug-reviewer severity=high (any category), bug-reviewer severity=medium AND category in {security, data-integrity, race-condition}, architecture-reviewer severity=high

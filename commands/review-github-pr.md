@@ -109,8 +109,27 @@ Probe for expected CLAUDE.md files:
    - Reject absolute paths (starting with `/`)
    Lines not matching all criteria are skipped (not recorded as expected directives)
    For each candidate, resolve the path relative to the CLAUDE.md's directory.
-   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path}).
+   To verify the directive target exists, use `git -C <worktree_path> show <merge_base>:<resolved_path>`.
+   Do NOT use the Read tool — the same merge-base trust rule applies to orchestrator
+   directive scanning. If the file does not exist at merge-base, record the directive
+   with status `not-found` but still include it in `expected_directives` (reviewers
+   should also report it as `not-found`).
+   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path, exists_at_merge_base}).
+   Apply the same fenced code block (condition c), inline code span (condition d), and status priority rules defined in the reviewer spec (step 3.3.1 conditions and the **Status priority** block after step 3.3.8). The authoritative definition lives in the reviewer agent files; orchestrator scanning must match.
    This is orchestrator-internal only — do NOT include in reviewer prompts.
+   **Depth-2 recursive resolution**: After building the initial `expected_directives` set:
+   1. Take a snapshot of the current `expected_directives` set (first-level entries)
+   2. For each entry in that snapshot where `exists_at_merge_base` is true, read the resolved file at merge-base: `git -C <worktree_path> show <merge_base>:<resolved_path>`
+   3. Scan that file for further `@` directives using the same rules
+   4. Append any found directives to `expected_directives` as second-level entries (probing each with `git show` and recording `exists_at_merge_base` accordingly)
+   5. Do NOT scan the appended second-level entries — this ensures exactly depth 2, not unbounded recursion
+   6. Do NOT recurse into `not-found` entries — they have no content to scan
+   Note: The orchestrator scans @ directives to depth 2, while reviewers resolve to depth 5. Directives found only at depth 3+ will not have orchestrator-side expectations. This is acceptable — the orchestrator cross-check is a best-effort sanity check, not a full parity verification. Reviewers reporting additional directives beyond orchestrator expectations is normal and expected for deeply nested include chains.
+5. For each directory in the ancestor chain, also check existence at HEAD:
+   `git -C <worktree_path> show HEAD:<dir>/CLAUDE.md` and `git -C <worktree_path> show HEAD:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C <worktree_path> show HEAD:CLAUDE.md` and `git -C <worktree_path> show HEAD:.claude/CLAUDE.md`)
+   If a CLAUDE.md exists at HEAD but NOT at merge-base, record it as `pr_added_guidelines`.
+   These are NOT included in `expected_guidelines` (trust rule still applies).
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
@@ -245,6 +264,21 @@ Files: <changed_files>  (+<additions> / -<deletions>)
 Reviewers: bug=<verdict>  arch=<verdict>  quality=<verdict>  tests=<verdict>
 Overall: <APPROVE|REQUEST_CHANGES>  (<count> P0, <count> P1, <count> P2, <count> nitpick)
 
+── Guidelines Context ─────────────────
+
+Expected CLAUDE.md files:
+  <path>
+
+Expected @ directives:
+  <parent_path> → @<directive> -> <resolved_path>
+
+PR-added CLAUDE.md (skipped per trust rule):
+  <path> (exists at HEAD, not at merge-base)
+
+Reviewer consistency (<N>/4 matched):
+  ✓ <reviewer>: <N> files, <M> directives (all matched)
+  ⚠ <reviewer>: <warning summary>
+
 ── P0 — Must Fix ──────────────────────
 
 [P0-1] <Issue title>
@@ -281,10 +315,21 @@ Overall: <APPROVE|REQUEST_CHANGES>  (<count> P0, <count> P1, <count> P2, <count>
 
 Omit any tier section that has zero issues (e.g., if no P0 issues, skip that entire section).
 
+**Guidelines Context section rules**:
+- **Always emit** this section, including when zero CLAUDE.md files are found
+- When `expected_guidelines` is empty: replace the Expected files/directives/reviewer subsections with `No CLAUDE.md files found in ancestor directories.`
+- Omit the "PR-added CLAUDE.md" subsection when `pr_added_guidelines` is empty
+- Omit the "Expected @ directives" subsection when `expected_directives` is empty
+- Show all cross-check warnings inline with ⚠ prefix; ✓ for reviewers with no warnings
+- Use compact one-line-per-reviewer format
+
 If the overall verdict is APPROVE and there are zero issues at any level, output:
 ```
 Reviewers: bug=APPROVE  arch=APPROVE  quality=APPROVE  tests=APPROVE
 Overall: APPROVE  (0 P0, 0 P1, 0 P2, 0 nitpick)
+
+── Guidelines Context ─────────────────
+<same format as above — always emit, even in zero-issues case>
 
 No issues found. All reviewers approved.
 ```
@@ -298,6 +343,11 @@ Spawn the `html-report-writer` agent via the Task tool. Pass it:
 - Overall verdict
 - All classified issues grouped by tier (P0/P1/P2/nitpick), each with: id, title, source reviewer, severity, category, file, line range, problem, suggestion
 - Worktree path and merge_base (so the agent can fetch per-file diffs)
+- `expected_guidelines` (list of paths)
+- `expected_directives` — each entry is `{parent_path, directive_text, resolved_path, exists_at_merge_base}` (canonical schema)
+- `pr_added_guidelines` (list of paths — may be empty)
+- Per-reviewer extracted guidelines data (from parsing `#### Guidelines Loaded`)
+- All cross-check warnings collected during Step 5
 - Output path: `/tmp/pr-review-<PR_NUMBER>.html`
 
 After the agent returns, print:

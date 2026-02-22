@@ -104,6 +104,7 @@ IMPORTANT instructions for this review:
 - Use `git -C {repo_root} diff --no-renames --name-only {base_hash}..HEAD` for changed file list
 - Use `git -C {repo_root} log {base_hash}..HEAD` for commit history
 - Read files under {repo_root}/ to examine surrounding context beyond the diff
+- For CLAUDE.md loading (workflow step 3), the merge_base commit is: {base_hash}
 ```
 
 ### 3.2 Parse, retry, and classify all issues

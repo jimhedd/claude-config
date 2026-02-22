@@ -86,6 +86,19 @@ For large PRs (>50 changed files or >3000 lines changed), only include the diff 
 git -C <worktree_path> diff --no-renames <merge_base>..HEAD
 ```
 
+Probe for expected CLAUDE.md files:
+1. From `git -C <worktree_path> diff --name-only <merge_base>..HEAD`, extract the set of
+   ancestor directories (e.g., for `services/catalog-service/foo.yml`: root, `services/`,
+   `services/catalog-service/`). Deduplicate across all changed files.
+2. For each directory (deepest first), test existence at merge-base:
+   `git -C <worktree_path> show <merge_base>:<dir>/CLAUDE.md` and
+   `git -C <worktree_path> show <merge_base>:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C <worktree_path> show <merge_base>:CLAUDE.md` and
+   `git -C <worktree_path> show <merge_base>:.claude/CLAUDE.md`)
+   Record each path that exists as `expected_guidelines`.
+3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
+   for cross-checking only.
+
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
 Launch all 4 agents using the Task tool **in a single message** so they run concurrently. Each agent receives the same context block plus its specific focus instructions.
@@ -115,6 +128,8 @@ IMPORTANT instructions for this review:
 - Use `git -C <worktree_path> diff --no-renames <merge_base>..HEAD` to see the full diff
 - Use `git -C <worktree_path> diff --no-renames --name-only <merge_base>..HEAD` for changed file list
 - Use `git -C <worktree_path> log <merge_base>..HEAD` for commit history
+- Read files under <worktree_path>/ to examine surrounding context beyond the diff
+- For CLAUDE.md loading (workflow step 3), the merge_base commit is: <merge_base>
 
 <if small PR: include full_diff here>
 <if large PR: "This is a large PR. Use the git and Read commands above to examine changes yourself.">
@@ -142,6 +157,21 @@ Parse each agent's output to extract:
 2. All issues with their severity and category
 
 If an agent's output cannot be parsed, warn about that reviewer but continue with the others. If ALL agents fail, stop and report the error.
+
+For each reviewer, extract and cross-check the `#### Guidelines Loaded` section against `expected_guidelines`:
+- Section missing entirely: log warning
+  "Warning: <reviewer-name> did not report Guidelines Loaded — CLAUDE.md context unverifiable"
+- `expected_guidelines` is non-empty but reviewer reports "None found": log warning
+  "Warning: <reviewer-name> reported no guidelines but expected: <expected list>"
+- Reviewer reports paths not in `expected_guidelines`: log warning
+  "Warning: <reviewer-name> reported unexpected guideline path: <path>"
+- Expected path missing from reported set: log warning
+  "Warning: <reviewer-name> did not report expected guideline: <path>"
+  (If reviewer included `(budget-limited, ...)` marker, append " (reviewer reported budget-limited)" to the warning for operator context.)
+- Source is not `merge-base` in an orchestrated flow (i.e., merge_base was provided
+  in the prompt): log warning
+  "Warning: <reviewer-name> loaded <path> from working tree instead of merge-base"
+These are warnings only — do not trigger parse failure, retry, or verdict override.
 
 ### Step 6: Classify Issues into Priority Tiers
 

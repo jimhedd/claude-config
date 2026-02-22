@@ -79,6 +79,20 @@ git -C {repo_root} diff --no-renames --shortstat {base_hash}..HEAD
 
 Also compute the diff size: count changed files and total changed lines. If the diff is **small** (<50 files AND <3000 lines), capture the full inline diff to include in the prompt. If the diff is **large** (>=50 files OR >=3000 lines), do NOT include the inline diff — agents will fetch it themselves.
 
+Probe for expected CLAUDE.md files:
+1. From `git -C {repo_root} diff --name-only {base_hash}..HEAD`, extract the set of ancestor
+   directories (e.g., for `services/catalog-service/foo.yml`: root, `services/`,
+   `services/catalog-service/`). Deduplicate across all changed files.
+2. For each directory (deepest first), test existence at merge-base:
+   `git -C {repo_root} show {base_hash}:<dir>/CLAUDE.md` and
+   `git -C {repo_root} show {base_hash}:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C {repo_root} show {base_hash}:CLAUDE.md` and
+   `git -C {repo_root} show {base_hash}:.claude/CLAUDE.md`)
+   Record each path that exists as `expected_guidelines`.
+3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
+   for cross-checking only. Reviewers must discover CLAUDE.md files independently via their
+   Step 3 workflow.
+
 Run these 4 subagents every iteration:
 
 - `code-quality-reviewer`
@@ -113,6 +127,21 @@ IMPORTANT instructions for this review:
    - Exactly one verdict: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
    - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, category, problem, suggestion
    - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully. Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
+   - `#### Guidelines Loaded` section: extract the set of reported paths and their sources.
+     Cross-check against `expected_guidelines`:
+     - Section missing entirely: log warning
+       "Warning: <reviewer-name> did not report Guidelines Loaded — CLAUDE.md context unverifiable"
+     - `expected_guidelines` is non-empty but reviewer reports "None found": log warning
+       "Warning: <reviewer-name> reported no guidelines but expected: <expected list>"
+     - Reviewer reports paths not in `expected_guidelines`: log warning
+       "Warning: <reviewer-name> reported unexpected guideline path: <path>"
+     - Expected path missing from reported set: log warning
+       "Warning: <reviewer-name> did not report expected guideline: <path>"
+       (If reviewer included `(budget-limited, ...)` marker, append " (reviewer reported budget-limited)" to the warning for operator context.)
+     - Source is not `merge-base` in an orchestrated flow (i.e., merge_base was provided
+       in the prompt): log warning
+       "Warning: <reviewer-name> loaded <path> from working tree instead of merge-base"
+     These are warnings only — do not trigger parse failure, retry, or verdict override.
 2. **Parse failure handling**: if a reviewer's output is unparseable, rerun that reviewer once. If still unparseable on retry, stop and report the reviewer name for manual intervention.
 3. Classify every successfully parsed issue into P0/P1/P2/nitpick. Classification rules are **scoped by source reviewer** — the reviewer that produced the issue determines which rule applies:
    - **P0**: bug-reviewer severity=high (any category), bug-reviewer severity=medium AND category in {security, data-integrity, race-condition}, architecture-reviewer severity=high

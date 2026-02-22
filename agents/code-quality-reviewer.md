@@ -121,6 +121,7 @@ Hard requirements:
 - Every evidence item must include at least one `path:line` anchor.
 - Keep the response concise (target <= 140 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
+- Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -132,6 +133,9 @@ Hard requirements:
 
 #### Change Summary
 <2-3 sentences: what the code does and what behavior changed>
+
+#### Guidelines Loaded
+- <path> (<source>) [one line per file, or "None found."]
 
 ### Verdict: APPROVE
 
@@ -156,6 +160,9 @@ OR (approve with nitpicks):
 
 #### Change Summary
 <2-3 sentences: what the code does and what behavior changed>
+
+#### Guidelines Loaded
+- <path> (<source>) [one line per file, or "None found."]
 
 ### Verdict: APPROVE
 
@@ -184,6 +191,9 @@ OR (request changes):
 
 #### Change Summary
 <2-3 sentences: what the code does and what behavior changed>
+
+#### Guidelines Loaded
+- <path> (<source>) [one line per file, or "None found."]
 
 ### Verdict: REQUEST_CHANGES
 

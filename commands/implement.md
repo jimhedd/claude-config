@@ -91,8 +91,10 @@ Probe for expected CLAUDE.md files:
    `cat-file -e` exits 0 if the object exists, non-zero otherwise (no stdout).
    Prefer individual `cat-file -e` calls per path over bash for-loops to reduce scripting errors.
    Record each path that exists as `expected_guidelines`.
+   The per-directory probes above are REQUIRED — do not skip them or replace them with the tree-wide scan below.
    After per-directory probing, verify with a tree-wide scan.
    Run `git -C {repo_root} ls-tree -r --name-only {base_hash}` and capture its output.
+   Do NOT pipe `ls-tree` into `grep` — run them as separate commands so a non-zero `ls-tree` exit is detected.
    If the command fails (non-zero exit), treat it as a hard error and stop.
    Then filter the captured output through `grep -E '(^|/)CLAUDE\.md$'`.
    If `grep` finds no matches (exit 1, empty stdout), that confirms no CLAUDE.md files
@@ -105,6 +107,7 @@ Probe for expected CLAUDE.md files:
    Include the match only if its ancestor directory is in the ancestor set.
    If any included path is not already in `expected_guidelines`, add it —
    the per-directory probe missed it.
+   If the per-directory `cat-file -e` probes were not executed before the tree-wide scan, re-run them now for every directory in the ancestor set before proceeding to step 3.
 3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
    for cross-checking only. Reviewers must discover CLAUDE.md files independently via their
    Step 3 workflow.
@@ -140,6 +143,10 @@ Probe for expected CLAUDE.md files:
    (for root: `git -C {repo_root} cat-file -e HEAD:CLAUDE.md` and `git -C {repo_root} cat-file -e HEAD:.claude/CLAUDE.md`)
    If a CLAUDE.md exists at HEAD but NOT at merge-base, record it as `pr_added_guidelines`.
    These are NOT included in `expected_guidelines` (trust rule still applies).
+6. Compute `ancestor_dirs_list` from the ancestor directory set for inclusion in reviewer prompts.
+   Sort: depth descending (count `/` separators), then lexicographic within the same depth, with `(root)` always last.
+   Format: comma-separated, no trailing slashes on directory names.
+   Example: `libraries/catalog-utils, services/catalog-service, libraries, services, (root)`
 
 Run these 4 subagents every iteration:
 

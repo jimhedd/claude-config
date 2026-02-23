@@ -84,11 +84,27 @@ Probe for expected CLAUDE.md files:
    directories (e.g., for `services/catalog-service/foo.yml`: root, `services/`,
    `services/catalog-service/`). Deduplicate across all changed files.
 2. For each directory (deepest first), test existence at merge-base:
-   `git -C {repo_root} show {base_hash}:<dir>/CLAUDE.md` and
-   `git -C {repo_root} show {base_hash}:<dir>/.claude/CLAUDE.md`
-   (for root: `git -C {repo_root} show {base_hash}:CLAUDE.md` and
-   `git -C {repo_root} show {base_hash}:.claude/CLAUDE.md`)
+   `git -C {repo_root} cat-file -e {base_hash}:<dir>/CLAUDE.md` and
+   `git -C {repo_root} cat-file -e {base_hash}:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C {repo_root} cat-file -e {base_hash}:CLAUDE.md` and
+   `git -C {repo_root} cat-file -e {base_hash}:.claude/CLAUDE.md`)
+   `cat-file -e` exits 0 if the object exists, non-zero otherwise (no stdout).
+   Prefer individual `cat-file -e` calls per path over bash for-loops to reduce scripting errors.
    Record each path that exists as `expected_guidelines`.
+   After per-directory probing, verify with a tree-wide scan.
+   Run `git -C {repo_root} ls-tree -r --name-only {base_hash}` and capture its output.
+   If the command fails (non-zero exit), treat it as a hard error and stop.
+   Then filter the captured output through `grep -E '(^|/)CLAUDE\.md$'`.
+   If `grep` finds no matches (exit 1, empty stdout), that confirms no CLAUDE.md files
+   exist — no correction needed.
+   For each match, determine the relevant ancestor directory:
+   - If the match is `<dir>/.claude/CLAUDE.md`, the ancestor is `<dir>/`
+     (or root if the match is `.claude/CLAUDE.md`).
+   - If the match is `<dir>/CLAUDE.md`, the ancestor is `<dir>/`
+     (or root if the match is `CLAUDE.md`).
+   Include the match only if its ancestor directory is in the ancestor set.
+   If any included path is not already in `expected_guidelines`, add it —
+   the per-directory probe missed it.
 3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
    for cross-checking only. Reviewers must discover CLAUDE.md files independently via their
    Step 3 workflow.
@@ -103,7 +119,7 @@ Probe for expected CLAUDE.md files:
    - Reject absolute paths (starting with `/`)
    Lines not matching all criteria are skipped (not recorded as expected directives)
    For each candidate, resolve the path relative to the CLAUDE.md's directory.
-   To verify the directive target exists, use `git -C {repo_root} show {base_hash}:<resolved_path>`.
+   To verify the directive target exists, use `git -C {repo_root} cat-file -e {base_hash}:<resolved_path>`.
    Do NOT use the Read tool — the same merge-base trust rule applies to orchestrator
    directive scanning. If the file does not exist at merge-base, record the directive
    with status `not-found` but still include it in `expected_directives` (reviewers
@@ -115,13 +131,13 @@ Probe for expected CLAUDE.md files:
    1. Take a snapshot of the current `expected_directives` set (first-level entries)
    2. For each entry in that snapshot where `exists_at_merge_base` is true, read the resolved file at merge-base: `git -C {repo_root} show {base_hash}:<resolved_path>`
    3. Scan that file for further `@` directives using the same rules
-   4. Append any found directives to `expected_directives` as second-level entries (probing each with `git show` and recording `exists_at_merge_base` accordingly)
+   4. Append any found directives to `expected_directives` as second-level entries (probing each with `git cat-file -e` and recording `exists_at_merge_base` accordingly)
    5. Do NOT scan the appended second-level entries — this ensures exactly depth 2, not unbounded recursion
    6. Do NOT recurse into `not-found` entries — they have no content to scan
    Note: The orchestrator scans @ directives to depth 2, while reviewers resolve to depth 5. Directives found only at depth 3+ will not have orchestrator-side expectations. This is acceptable — the orchestrator cross-check is a best-effort sanity check, not a full parity verification. Reviewers reporting additional directives beyond orchestrator expectations is normal and expected for deeply nested include chains.
 5. For each directory in the ancestor chain, also check existence at HEAD:
-   `git -C {repo_root} show HEAD:<dir>/CLAUDE.md` and `git -C {repo_root} show HEAD:<dir>/.claude/CLAUDE.md`
-   (for root: `git -C {repo_root} show HEAD:CLAUDE.md` and `git -C {repo_root} show HEAD:.claude/CLAUDE.md`)
+   `git -C {repo_root} cat-file -e HEAD:<dir>/CLAUDE.md` and `git -C {repo_root} cat-file -e HEAD:<dir>/.claude/CLAUDE.md`
+   (for root: `git -C {repo_root} cat-file -e HEAD:CLAUDE.md` and `git -C {repo_root} cat-file -e HEAD:.claude/CLAUDE.md`)
    If a CLAUDE.md exists at HEAD but NOT at merge-base, record it as `pr_added_guidelines`.
    These are NOT included in `expected_guidelines` (trust rule still applies).
 

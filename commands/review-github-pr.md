@@ -70,20 +70,9 @@ git -C <worktree_path> merge-base <base_sha> HEAD
 ```
 Remember the output as `merge_base`.
 
-Get the diff stat, summary, and commit log (run each as a separate command):
-```bash
-git -C <worktree_path> diff --no-renames --stat <merge_base>..HEAD
-```
-```bash
-git -C <worktree_path> diff --no-renames --shortstat <merge_base>..HEAD
-```
+Get the commit log:
 ```bash
 git -C <worktree_path> log --oneline <merge_base>..HEAD
-```
-
-For large PRs (>50 changed files or >3000 lines changed), only include the diff stat in agent prompts and let agents fetch details themselves. For smaller PRs, also capture the full diff:
-```bash
-git -C <worktree_path> diff --no-renames <merge_base>..HEAD
 ```
 
 Resolve project guidelines via the CLAUDE.md resolution script:
@@ -123,10 +112,6 @@ PR Description:
 Commits:
 <commit_log>
 
-Diff stat:
-<diff_stat>
-<diff_summary>
-
 Worktree path: <worktree_path>
 Diff range: <merge_base>..HEAD
 
@@ -135,6 +120,7 @@ IMPORTANT instructions for this review:
 - All file reads must use absolute paths under <worktree_path>/
 - Your review scope is the diff range: <merge_base>..HEAD
 - Use `git -C <worktree_path> diff --no-renames <merge_base>..HEAD` to see the full diff
+- Use `git -C <worktree_path> diff --no-renames <merge_base>..HEAD -- <file>` for a single file's diff
 - Use `git -C <worktree_path> diff --no-renames --name-only <merge_base>..HEAD` for changed file list
 - Use `git -C <worktree_path> log <merge_base>..HEAD` for commit history
 - Read files under <worktree_path>/ to examine surrounding context beyond the diff
@@ -148,9 +134,6 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
 ---BEGIN GUIDELINES_LOADED---
 <guidelines_loaded_section>
 ---END GUIDELINES_LOADED---
-
-<if small PR: include full_diff here>
-<if large PR: "This is a large PR. Use the git and Read commands above to examine changes yourself.">
 
 Perform your review now.
 ```

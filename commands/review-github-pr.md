@@ -99,7 +99,7 @@ If `warnings` is non-empty, print all warnings in the CLI output but do not trea
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
-Launch all 4 agents using the Task tool **in a single message** so they run concurrently. Each agent receives the same context block plus its specific focus instructions.
+Launch all 4 agents using the Task tool **in a single message** so they run concurrently. Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn. Each agent receives the same context block plus its specific focus instructions.
 
 **Context block for all agents** (adapt the git commands to use `-C <worktree_path>`):
 
@@ -300,7 +300,7 @@ No issues found. All reviewers approved.
 
 ### Step 8: Generate HTML Report
 
-Spawn the `html-report-writer` agent via the Task tool. Pass it:
+Spawn the `html-report-writer` agent via the Task tool. Do NOT use `run_in_background`. Pass it:
 
 - PR metadata: number, title, base_ref, head_ref, base_sha (first 8 chars), head_sha (first 8 chars), additions, deletions, changed_files
 - Per-reviewer verdicts (bug, arch, quality, tests)

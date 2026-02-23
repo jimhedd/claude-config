@@ -70,15 +70,6 @@ Repeat until all reviewers approve or max iterations reached.
 
 ### 3.1 Run all reviewers in parallel
 
-Before spawning agents, capture diff statistics:
-
-```bash
-git -C {repo_root} diff --no-renames --stat {base_hash}..HEAD
-git -C {repo_root} diff --no-renames --shortstat {base_hash}..HEAD
-```
-
-Also compute the diff size: count changed files and total changed lines. If the diff is **small** (<50 files AND <3000 lines), capture the full inline diff to include in the prompt. If the diff is **large** (>=50 files OR >=3000 lines), do NOT include the inline diff — agents will fetch it themselves.
-
 Resolve project guidelines via the CLAUDE.md resolution script:
 ```bash
 python3 ~/.claude/scripts/resolve-claude-md.py \
@@ -112,9 +103,6 @@ Each reviewer prompt must include:
 
 - compact plan summary from `{plan_contents}`
 - commit context: `git -C {repo_root} log {base_hash}..HEAD`
-- diff stat output (`--stat` and `--shortstat`)
-- for small diffs: inline diff from `git -C {repo_root} diff --no-renames {base_hash}..HEAD`
-- for large diffs: instruction to fetch the diff themselves
 - instruction to follow that reviewer's required output format exactly
 - the following file-read, git instructions, and pre-resolved guidelines block:
 
@@ -123,6 +111,7 @@ IMPORTANT instructions for this review:
 - All file reads must use absolute paths under {repo_root}/
 - Your review scope is the diff range: {base_hash}..HEAD
 - Use `git -C {repo_root} diff --no-renames {base_hash}..HEAD` to see the full diff
+- Use `git -C {repo_root} diff --no-renames {base_hash}..HEAD -- <file>` for a single file's diff
 - Use `git -C {repo_root} diff --no-renames --name-only {base_hash}..HEAD` for changed file list
 - Use `git -C {repo_root} log {base_hash}..HEAD` for commit history
 - Read files under {repo_root}/ to examine surrounding context beyond the diff

@@ -99,6 +99,8 @@ Run these 4 subagents every iteration:
 - `test-reviewer`
 - `bug-reviewer`
 
+Launch all 4 as parallel Task calls in a single message. Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn.
+
 Each reviewer prompt must include:
 
 - compact plan summary from `{plan_contents}`

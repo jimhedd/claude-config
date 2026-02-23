@@ -228,7 +228,12 @@ html { scroll-behavior: smooth; }
       var id = el.getAttribute('data-diff-id');
       var diffScript = document.querySelector('script[data-for="' + id + '"]');
       if (diffScript) {
-        var diff2htmlUi = new Diff2HtmlUI(el, diffScript.textContent, {
+        var diffText = diffScript.textContent.trim();
+        if (!diffText) {
+          el.innerHTML = '<p style="color:#8b949e;padding:1rem;font-style:italic;">No changes to this file in this PR.</p>';
+          return;
+        }
+        var diff2htmlUi = new Diff2HtmlUI(el, diffText, {
           drawFileList: false,
           fileListToggle: false,
           fileContentToggle: false,

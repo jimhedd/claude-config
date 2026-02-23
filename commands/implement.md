@@ -156,6 +156,7 @@ Each reviewer prompt must include:
 - for small diffs: inline diff from `git -C {repo_root} diff --no-renames {base_hash}..HEAD`
 - for large diffs: instruction to fetch the diff themselves
 - instruction to follow that reviewer's required output format exactly
+- pre-computed ancestor directory list (deepest-first) from the probing step
 - the following file-read and git instructions block:
 
 ```
@@ -167,6 +168,7 @@ IMPORTANT instructions for this review:
 - Use `git -C {repo_root} log {base_hash}..HEAD` for commit history
 - Read files under {repo_root}/ to examine surrounding context beyond the diff
 - For CLAUDE.md loading (workflow step 3), the merge_base commit is: {base_hash}
+- CLAUDE.md ancestor directories (pre-computed, deepest-first): {ancestor_dirs_list}
 ```
 
 ### 3.2 Parse, retry, and classify all issues

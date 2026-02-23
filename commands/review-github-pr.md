@@ -178,6 +178,7 @@ IMPORTANT instructions for this review:
 - Use `git -C <worktree_path> log <merge_base>..HEAD` for commit history
 - Read files under <worktree_path>/ to examine surrounding context beyond the diff
 - For CLAUDE.md loading (workflow step 3), the merge_base commit is: <merge_base>
+- CLAUDE.md ancestor directories (pre-computed, deepest-first): <ancestor_dirs_list>
 
 <if small PR: include full_diff here>
 <if large PR: "This is a large PR. Use the git and Read commands above to examine changes yourself.">

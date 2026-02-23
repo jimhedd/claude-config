@@ -11,6 +11,7 @@ allowedTools:
   - Bash(git log:*)
   - Bash(git status:*)
   - Bash(git show:*)
+  - Bash(git cat-file:*)
   - Bash(diff:*)
   - Bash(cat:*)
   - Bash(head:*)
@@ -60,10 +61,15 @@ Evaluate the changed code for:
 2. Run `git diff --name-only` (using the same ref range from the prompt) to get the list of changed files in that range
 3. **Load project guidelines from CLAUDE.md**
    1. From the changed file list (step 2), build the full ancestor directory chain for each file. For example, if `services/payments/handler.go` changed, check: root, `services/`, and `services/payments/`. Deduplicate across all changed files.
-   2. For each directory in the chain, attempt to read the merge-base version:
-      `git show <merge_base>:CLAUDE.md` and `git show <merge_base>:.claude/CLAUDE.md` (for root)
-      `git show <merge_base>:<dir>/CLAUDE.md` and `git show <merge_base>:<dir>/.claude/CLAUDE.md` (for each ancestor/leaf directory)
-      Ignore errors — the file may not exist at that path. If both paths exist for a given directory, load both (CLAUDE.md first, then .claude/CLAUDE.md).
+   2. For each directory in the chain, first test existence then read content.
+      If the orchestrator prompt includes a pre-computed ancestor directory list, use it instead of deriving from the changed file list. Process the list in the given order (deepest-first, matching the budget rule).
+      For each directory, check both `CLAUDE.md` and `.claude/CLAUDE.md` variants:
+      - `(root)` entry: check `<merge_base>:CLAUDE.md` and `<merge_base>:.claude/CLAUDE.md`
+      - Any other entry `<dir>`: strip any trailing `/` before constructing paths, then check `<merge_base>:<dir>/CLAUDE.md` and `<merge_base>:<dir>/.claude/CLAUDE.md`
+      Test existence with `git cat-file -e <merge_base>:<path>` (exits 0 if exists, non-zero otherwise, no stdout).
+      Read content with `git show <merge_base>:<path>` only for paths confirmed to exist.
+      Prefer individual `cat-file -e` calls per path over bash for-loops to reduce scripting errors.
+      If both variants exist for a given directory, load both (CLAUDE.md first, then .claude/CLAUDE.md).
    3. **Resolve `@` include directives** in each loaded CLAUDE.md:
       1. **Identify directives**: Scan line by line. A line is an `@` directive if and only if all of (a)–(d) hold:
          - **(a)** Its trimmed content matches the pattern `@<path>` where `<path>` consists only of safe path characters (`A-Za-z0-9._/~-`) and does not contain `..` as a path component.
@@ -73,7 +79,7 @@ Evaluate the changed code for:
          Paths containing shell metacharacters (`` ` ``, `$`, `;`, `|`, `(`, `)`, `&`, `*`, `?`, `!`, `{`, `}`, `[`, `]`, `<`, `>`, `\`, `'`, `"`, spaces, etc.) or `..` path components are rejected — the line is preserved verbatim. Lines that do not match this strict pattern (e.g., `@team please check`, `@mention`, `@$(whoami).md`, email addresses) are preserved verbatim — never removed or modified.
       2. **Resolve paths**: Each `@<path>` is relative to the directory containing the CLAUDE.md. For `<dir>/CLAUDE.md` containing `@AGENTS.md`, resolve to `<dir>/AGENTS.md`. For root CLAUDE.md, resolve `@foo.md` to `foo.md`.
       3. **Path safety check**: After resolving the path (sub-step 2), normalize the result, reject absolute paths (starting with `/`), and reject any resolved path that escapes the repository root. Violations are silently skipped — the directive line is dropped. This is defense-in-depth: literal `..` components are already rejected as non-directives in sub-step 1 (line preserved verbatim), but this check catches edge cases in the fully-resolved path. Applies in both merge-base and fallback modes.
-      4. **Fetch referenced content**: Use `git show <merge_base>:<resolved_path>` to load the referenced file. If the file does not exist at merge-base, silently drop the `@` directive line. Apply the same trust rule — merge-base content only.
+      4. **Fetch referenced content**: First verify the target exists with `git cat-file -e <merge_base>:<resolved_path>`. If non-zero exit, record as `not-found` and drop the directive line. If it exists, read the content with `git show <merge_base>:<resolved_path>`. Apply the same trust rule — merge-base content only.
       5. **Replace inline**: Replace the `@` directive line with the fetched content. If the file was not found, remove only the directive line.
       6. **Bounded recursion**: Scan fetched content for further `@` directives and resolve them using the same rules, up to a maximum depth of 5. Track resolved paths to detect cycles — if a path has already been resolved in the current chain, skip it. All resolved content counts against the top-level 8000-character collection budget.
       7. **Budget awareness**: Referenced content is included in full unless the top-level 8000-character collection budget would be exceeded. If inserting a referenced file's content would cross the remaining budget, truncate the referenced content so that the truncated content plus the 11-character marker `[truncated]` together fit within the remaining budget. If the remaining budget is less than 12 characters (not enough for any content plus the marker), drop the directive line entirely.

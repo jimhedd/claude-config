@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh pr:*), Bash(git:*), Bash(* /tmp/*), Read, Glob, Grep, Task, Write
+allowed-tools: Bash(gh pr:*), Bash(git:*), Bash(* /tmp/*), Bash(python3:*), Read, Glob, Grep, Task, Write
 description: Review a GitHub pull request using 4 parallel reviewer agents with worktree isolation.
 requires-argument: true
 argument-description: PR number to review
@@ -86,73 +86,27 @@ For large PRs (>50 changed files or >3000 lines changed), only include the diff 
 git -C <worktree_path> diff --no-renames <merge_base>..HEAD
 ```
 
-Probe for expected CLAUDE.md files:
-1. From `git -C <worktree_path> diff --name-only <merge_base>..HEAD`, extract the set of
-   ancestor directories (e.g., for `services/catalog-service/foo.yml`: root, `services/`,
-   `services/catalog-service/`). Deduplicate across all changed files.
-2. For each directory (deepest first), test existence at merge-base:
-   `git -C <worktree_path> cat-file -e <merge_base>:<dir>/CLAUDE.md` and
-   `git -C <worktree_path> cat-file -e <merge_base>:<dir>/.claude/CLAUDE.md`
-   (for root: `git -C <worktree_path> cat-file -e <merge_base>:CLAUDE.md` and
-   `git -C <worktree_path> cat-file -e <merge_base>:.claude/CLAUDE.md`)
-   `cat-file -e` exits 0 if the object exists, non-zero otherwise (no stdout).
-   Prefer individual `cat-file -e` calls per path over bash for-loops to reduce scripting errors.
-   Record each path that exists as `expected_guidelines`.
-   The per-directory probes above are REQUIRED — do not skip them or replace them with the tree-wide scan below.
-   After per-directory probing, verify with a tree-wide scan.
-   Run `git -C <worktree_path> ls-tree -r --name-only <merge_base>` and capture its output.
-   Do NOT pipe `ls-tree` into `grep` — run them as separate commands so a non-zero `ls-tree` exit is detected.
-   If the command fails (non-zero exit), treat it as a hard error and stop.
-   Then filter the captured output through `grep -E '(^|/)CLAUDE\.md$'`.
-   If `grep` finds no matches (exit 1, empty stdout), that confirms no CLAUDE.md files
-   exist — no correction needed.
-   For each match, determine the relevant ancestor directory:
-   - If the match is `<dir>/.claude/CLAUDE.md`, the ancestor is `<dir>/`
-     (or root if the match is `.claude/CLAUDE.md`).
-   - If the match is `<dir>/CLAUDE.md`, the ancestor is `<dir>/`
-     (or root if the match is `CLAUDE.md`).
-   Include the match only if its ancestor directory is in the ancestor set.
-   If any included path is not already in `expected_guidelines`, add it —
-   the per-directory probe missed it.
-   If the per-directory `cat-file -e` probes were not executed before the tree-wide scan, re-run them now for every directory in the ancestor set before proceeding to step 3.
-3. Do NOT include `expected_guidelines` in reviewer prompts — keep it orchestrator-internal
-   for cross-checking only.
-4. For each path in `expected_guidelines`, read its content at merge-base:
-   `git -C <worktree_path> show <merge_base>:<path>`
-   Scan for @ directive candidates using the same rules reviewers use (step 3.3.1):
-   - `@` must be the first non-whitespace character on the line
-   - The `@<path>` token must NOT be inside a fenced code block (``` or ~~~)
-   - The `@<path>` token must NOT be inside an inline code span (backticks)
-   - `<path>` must consist only of safe path characters (`A-Za-z0-9._/~-`)
-   - Reject paths containing `..` as a path component
-   - Reject absolute paths (starting with `/`)
-   Lines not matching all criteria are skipped (not recorded as expected directives)
-   For each candidate, resolve the path relative to the CLAUDE.md's directory.
-   To verify the directive target exists, use `git -C <worktree_path> cat-file -e <merge_base>:<resolved_path>`.
-   Do NOT use the Read tool — the same merge-base trust rule applies to orchestrator
-   directive scanning. If the file does not exist at merge-base, record the directive
-   with status `not-found` but still include it in `expected_directives` (reviewers
-   should also report it as `not-found`).
-   Record as `expected_directives` (set of {parent_path, directive_text, resolved_path, exists_at_merge_base}).
-   Apply the same fenced code block (condition c), inline code span (condition d), and status priority rules defined in the reviewer spec (step 3.3.1 conditions and the **Status priority** block after step 3.3.8). The authoritative definition lives in the reviewer agent files; orchestrator scanning must match.
-   This is orchestrator-internal only — do NOT include in reviewer prompts.
-   **Depth-2 recursive resolution**: After building the initial `expected_directives` set:
-   1. Take a snapshot of the current `expected_directives` set (first-level entries)
-   2. For each entry in that snapshot where `exists_at_merge_base` is true, read the resolved file at merge-base: `git -C <worktree_path> show <merge_base>:<resolved_path>`
-   3. Scan that file for further `@` directives using the same rules
-   4. Append any found directives to `expected_directives` as second-level entries (probing each with `git cat-file -e` and recording `exists_at_merge_base` accordingly)
-   5. Do NOT scan the appended second-level entries — this ensures exactly depth 2, not unbounded recursion
-   6. Do NOT recurse into `not-found` entries — they have no content to scan
-   Note: The orchestrator scans @ directives to depth 2, while reviewers resolve to depth 5. Directives found only at depth 3+ will not have orchestrator-side expectations. This is acceptable — the orchestrator cross-check is a best-effort sanity check, not a full parity verification. Reviewers reporting additional directives beyond orchestrator expectations is normal and expected for deeply nested include chains.
-5. For each directory in the ancestor chain, also check existence at HEAD:
-   `git -C <worktree_path> cat-file -e HEAD:<dir>/CLAUDE.md` and `git -C <worktree_path> cat-file -e HEAD:<dir>/.claude/CLAUDE.md`
-   (for root: `git -C <worktree_path> cat-file -e HEAD:CLAUDE.md` and `git -C <worktree_path> cat-file -e HEAD:.claude/CLAUDE.md`)
-   If a CLAUDE.md exists at HEAD but NOT at merge-base, record it as `pr_added_guidelines`.
-   These are NOT included in `expected_guidelines` (trust rule still applies).
-6. Compute `ancestor_dirs_list` from the ancestor directory set for inclusion in reviewer prompts.
-   Sort: depth descending (count `/` separators), then lexicographic within the same depth, with `(root)` always last.
-   Format: comma-separated, no trailing slashes on directory names.
-   Example: `libraries/catalog-utils, services/catalog-service, libraries, services, (root)`
+Resolve project guidelines via the CLAUDE.md resolution script:
+```bash
+python3 ~/.claude/scripts/resolve-claude-md.py \
+  --git-dir <worktree_path> \
+  --merge-base <merge_base> \
+  --ref-range <merge_base>..HEAD \
+  --depth 5 \
+  --check-head
+```
+
+Parse the JSON output and store:
+- `ancestor_dirs_list` — for reference in reviewer prompts
+- `expected_guidelines` — for Step 5 cross-checking
+- `expected_directives` — for Step 5 cross-checking (filter to depth<=2 for orchestrator expectations)
+- `pr_added_guidelines` — for CLI report
+- `warnings` — print each as `⚠ <warning text>` in the Guidelines Context CLI section
+- `resolved_content` — to include in reviewer prompts
+- `guidelines_loaded_section` — to include in reviewer prompts
+
+If the script exits non-zero, stop and report the error.
+If `warnings` is non-empty, print all warnings in the CLI output but do not treat them as fatal.
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
@@ -184,8 +138,16 @@ IMPORTANT instructions for this review:
 - Use `git -C <worktree_path> diff --no-renames --name-only <merge_base>..HEAD` for changed file list
 - Use `git -C <worktree_path> log <merge_base>..HEAD` for commit history
 - Read files under <worktree_path>/ to examine surrounding context beyond the diff
-- For CLAUDE.md loading (workflow step 3), the merge_base commit is: <merge_base>
-- CLAUDE.md ancestor directories (pre-computed, deepest-first): <ancestor_dirs_list>
+
+Project Guidelines (pre-resolved from CLAUDE.md files at merge-base <merge_base>):
+---BEGIN GUIDELINES---
+<resolved_content>
+---END GUIDELINES---
+
+For your #### Guidelines Loaded output section, use this pre-computed block:
+---BEGIN GUIDELINES_LOADED---
+<guidelines_loaded_section>
+---END GUIDELINES_LOADED---
 
 <if small PR: include full_diff here>
 <if large PR: "This is a large PR. Use the git and Read commands above to examine changes yourself.">
@@ -214,12 +176,13 @@ Parse each agent's output to extract:
 
 If an agent's output cannot be parsed, warn about that reviewer but continue with the others. If ALL agents fail, stop and report the error.
 
-For each reviewer, extract and cross-check the `#### Guidelines Loaded` section:
+For each reviewer, extract and cross-check the `#### Guidelines Loaded` section against
+the script's JSON output (`expected_guidelines` and `expected_directives` filtered to depth<=2):
 - **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`
   with no leading indentation before the `-`. These are CLAUDE.md file paths.
 - **Directive sub-items**: indented bullets matching `  - @<directive> -> <resolved-path> (<status>)`
   (with 2+ spaces before `-`). These belong to the nearest preceding guideline entry.
-Cross-check guideline entries against `expected_guidelines`:
+Cross-check guideline entries against `expected_guidelines` from script output:
 - Section missing entirely: log warning
   "Warning: <reviewer-name> did not report Guidelines Loaded — CLAUDE.md context unverifiable"
 - `expected_guidelines` is non-empty but reviewer reports "None found": log warning
@@ -228,14 +191,10 @@ Cross-check guideline entries against `expected_guidelines`:
   "Warning: <reviewer-name> reported unexpected guideline path: <path>"
 - Expected path missing from reported set: log warning
   "Warning: <reviewer-name> did not report expected guideline: <path>"
-  (If reviewer included `(budget-limited, ...)` marker, append " (reviewer reported budget-limited)" to the warning for operator context.)
-- Source is not `merge-base` in an orchestrated flow (i.e., merge_base was provided
-  in the prompt): log warning
-  "Warning: <reviewer-name> loaded <path> from working tree instead of merge-base"
 These are warnings only — do not trigger parse failure, retry, or verdict override.
 
-For each entry in `expected_directives`, check if the reviewer reported a matching
-`@<directive>` sub-item under the corresponding parent path:
+For each entry in `expected_directives` (depth<=2 from script output), check if the reviewer
+reported a matching `@<directive>` sub-item under the corresponding parent path:
 - Directive not reported at all: log warning
   "Warning: <reviewer-name> did not report expected @ directive: @<directive> in <parent-path>"
 - Directive reported with any status (`resolved`, `truncated`, `not-found`,
@@ -243,8 +202,6 @@ For each entry in `expected_directives`, check if the reviewer reported a matchi
 - Directive reported with status `budget-dropped`: log informational
   "Info: <reviewer-name> budget-dropped @ directive: @<directive> in <parent-path>"
 - Reviewer reports @ directives not in `expected_directives`: no warning
-  (reviewer may have found directives the orchestrator's simplified heuristic missed,
-  or recursive includes that the orchestrator does not track)
 These are warnings only — do not trigger parse failure, retry, or verdict override.
 
 ### Step 6: Classify Issues into Priority Tiers

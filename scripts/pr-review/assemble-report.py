@@ -4,7 +4,7 @@
 Usage:
     python3 assemble-report.py <body_file> <output_file> --title "PR Review: #42 - Fix bug"
 
-The template is located relative to this script at ../templates/pr-review.html.
+The template is located relative to this script at ../../templates/pr-review.html.
 The body file is deleted on success; preserved on failure for debugging.
 """
 
@@ -24,7 +24,7 @@ def main() -> int:
 
     # Locate template relative to this script
     script_dir = Path(__file__).resolve().parent
-    template_path = script_dir.parent / "templates" / "pr-review.html"
+    template_path = script_dir.parent.parent / "templates" / "pr-review.html"
 
     if not template_path.is_file():
         print(f"ERROR: Template not found at {template_path}", file=sys.stderr)

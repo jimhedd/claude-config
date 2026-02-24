@@ -367,17 +367,17 @@ Field rules:
 
 **8b.** Render body + pairs:
 ```bash
-python3 ~/.claude/scripts/render-report.py /tmp/pr-review-<PR_NUMBER>.json /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+python3 ~/.claude/scripts/pr-review/render-report.py /tmp/pr-review-<PR_NUMBER>.json /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>-pairs.tsv
 ```
 
 **8c.** Assemble (unchanged):
 ```bash
-python3 ~/.claude/scripts/assemble-report.py /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>.html --title "PR Review: #<PR_NUMBER> - <pr_title>"
+python3 ~/.claude/scripts/pr-review/assemble-report.py /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>.html --title "PR Review: #<PR_NUMBER> - <pr_title>"
 ```
 
 **8d.** Inject diffs (unchanged):
 ```bash
-python3 ~/.claude/scripts/inject-diff.py /tmp/pr-review-<PR_NUMBER>.html <worktree_path> <merge_base> --pairs-file /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+python3 ~/.claude/scripts/pr-review/inject-diff.py /tmp/pr-review-<PR_NUMBER>.html <worktree_path> <merge_base> --pairs-file /tmp/pr-review-<PR_NUMBER>-pairs.tsv
 ```
 
 After the pipeline completes, print:

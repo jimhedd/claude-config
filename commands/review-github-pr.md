@@ -89,13 +89,13 @@ Parse the JSON output and store:
 - `ancestor_dirs_list` — for reference in reviewer prompts
 - `expected_guidelines` — for Step 5 cross-checking
 - `expected_directives` — for Step 5 cross-checking (filter to depth<=2 for orchestrator expectations)
-- `pr_added_guidelines` — for CLI report
-- `warnings` — print each as `⚠ <warning text>` in the Guidelines Context CLI section
+- `pr_added_guidelines` — for HTML report JSON
+- `warnings` — for HTML report JSON (included in guidelines section)
 - `resolved_content` — to include in reviewer prompts
 - `guidelines_loaded_section` — to include in reviewer prompts
 
 If the script exits non-zero, stop and report the error.
-If `warnings` is non-empty, print all warnings in the CLI output but do not treat them as fatal.
+If `warnings` is non-empty, they will be included in the HTML report via the JSON `guidelines.warnings` array. Do not treat them as fatal.
 
 ### Step 4: Spawn 4 Reviewer Agents in Parallel
 
@@ -214,89 +214,16 @@ Map each agent issue to a priority tier using these rules:
 
 **Overall verdict**: `REQUEST_CHANGES` if any P0 or P1 issue exists, otherwise `APPROVE`.
 
-### Step 7: Render CLI Report
+### Step 7: Render CLI Verdict Summary
 
-Output the final report in this exact format:
+Output a minimal 2-line verdict summary:
 
 ```
-========================================
-PR Review: #<number> - <title>
-========================================
-Base: <base_ref> (<base_sha short>)  Head: <head_ref> (<head_sha short>)
-Files: <changed_files>  (+<additions> / -<deletions>)
-
 Reviewers: bug=<verdict>  arch=<verdict>  quality=<verdict>  tests=<verdict>
 Overall: <APPROVE|REQUEST_CHANGES>  (<count> P0, <count> P1, <count> P2, <count> nitpick)
-
-── Guidelines Context ─────────────────
-
-Expected CLAUDE.md files:
-  <path>
-
-Expected @ directives:
-  <parent_path> → @<directive> -> <resolved_path>
-
-PR-added CLAUDE.md (skipped per trust rule):
-  <path> (exists at HEAD, not at merge-base)
-
-Reviewer consistency (<N>/4 matched):
-  ✓ <reviewer>: <N> files, <M> directives (all matched)
-  ⚠ <reviewer>: <warning summary>
-
-── P0 — Must Fix ──────────────────────
-
-[P0-1] <Issue title>
-  Source:  <Reviewer Name> (<severity> / <category>)
-  File:    <file_path>:<line_range>
-  Problem: <problem description>
-  Fix:     <suggestion>
-
-── P1 — Should Fix ─────────────────────
-
-[P1-1] <Issue title>
-  Source:  <Reviewer Name> (<severity> / <category>)
-  File:    <file_path>:<line_range>
-  Problem: <problem description>
-  Fix:     <suggestion>
-
-── P2 — Consider Fixing ────────────────
-
-[P2-1] <Issue title>
-  Source:  <Reviewer Name> (<severity> / <category>)
-  File:    <file_path>:<line_range>
-  Problem: <problem description>
-  Fix:     <suggestion>
-
-── Nitpick ─────────────────────────────
-
-[N-1] <Issue title>
-  Source:  <Reviewer Name> (<category>)
-  File:    <file_path>:<line_range>
-  Comment: <description>
-
-========================================
 ```
 
-Omit any tier section that has zero issues (e.g., if no P0 issues, skip that entire section).
-
-**Guidelines Context section rules**:
-- **Always emit** this section, including when zero CLAUDE.md files are found
-- When `expected_guidelines` is empty: replace the Expected files/directives/reviewer subsections with `No CLAUDE.md files found in ancestor directories.`
-- Omit the "PR-added CLAUDE.md" subsection when `pr_added_guidelines` is empty
-- Omit the "Expected @ directives" subsection when `expected_directives` is empty
-- Show all cross-check warnings inline with ⚠ prefix; ✓ for reviewers with no warnings
-- Use compact one-line-per-reviewer format
-
-If the overall verdict is APPROVE and there are zero issues at any level, output:
-```
-Reviewers: bug=APPROVE  arch=APPROVE  quality=APPROVE  tests=APPROVE
-Overall: APPROVE  (0 P0, 0 P1, 0 P2, 0 nitpick)
-
-── Guidelines Context ─────────────────
-<same format as above — always emit, even in zero-issues case>
-
-No issues found. All reviewers approved.
-```
+All issue details are in the HTML report (Step 8). Do not render issue lists, guidelines context, or any other sections here.
 
 ### Step 8: Generate HTML Report
 
@@ -367,7 +294,7 @@ Field rules:
 
 **8b.** Render body + pairs:
 ```bash
-python3 ~/.claude/scripts/pr-review/render-report.py /tmp/pr-review-<PR_NUMBER>.json /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+python3 ~/.claude/scripts/pr-review/render-report.py /tmp/pr-review-<PR_NUMBER>.json /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>-pairs.tsv > /dev/null
 ```
 
 **8c.** Assemble (unchanged):
@@ -377,7 +304,7 @@ python3 ~/.claude/scripts/pr-review/assemble-report.py /tmp/pr-review-<PR_NUMBER
 
 **8d.** Inject diffs (unchanged):
 ```bash
-python3 ~/.claude/scripts/pr-review/inject-diff.py /tmp/pr-review-<PR_NUMBER>.html <worktree_path> <merge_base> --pairs-file /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+python3 ~/.claude/scripts/pr-review/inject-diff.py /tmp/pr-review-<PR_NUMBER>.html <worktree_path> <merge_base> --pairs-file /tmp/pr-review-<PR_NUMBER>-pairs.tsv > /dev/null
 ```
 
 After the pipeline completes, print:

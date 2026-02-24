@@ -300,21 +300,87 @@ No issues found. All reviewers approved.
 
 ### Step 8: Generate HTML Report
 
-Spawn the `html-report-writer` agent via the Task tool. Do NOT use `run_in_background`. Pass it:
+**8a.** Write JSON to `/tmp/pr-review-<PR_NUMBER>.json` using the Write tool. Schema:
 
-- PR metadata: number, title, base_ref, head_ref, base_sha (first 8 chars), head_sha (first 8 chars), additions, deletions, changed_files
-- Per-reviewer verdicts (bug, arch, quality, tests)
-- Overall verdict
-- All classified issues grouped by tier (P0/P1/P2/nitpick), each with: id, title, source reviewer, severity, category, file, line range, problem, suggestion
-- Worktree path and merge_base (so the agent can fetch per-file diffs)
-- `expected_guidelines` (list of paths)
-- `expected_directives` — each entry is `{parent_path, directive_text, resolved_path, exists_at_merge_base}` (canonical schema)
-- `pr_added_guidelines` (list of paths — may be empty)
-- Per-reviewer extracted guidelines data (from parsing `#### Guidelines Loaded`)
-- All cross-check warnings collected during Step 5
-- Output path: `/tmp/pr-review-<PR_NUMBER>.html`
+```json
+{
+  "pr": {
+    "number": 42,
+    "title": "Fix auth bug",
+    "base_ref": "main",
+    "head_ref": "feature/auth-fix",
+    "base_sha": "abc12345",
+    "head_sha": "def67890",
+    "additions": 150,
+    "deletions": 30,
+    "changed_files": 5
+  },
+  "verdicts": {
+    "bug": "APPROVE",
+    "arch": "APPROVE",
+    "quality": "REQUEST_CHANGES",
+    "tests": "REQUEST_CHANGES",
+    "overall": "REQUEST_CHANGES"
+  },
+  "issues": [
+    {
+      "id": "P0-1",
+      "tier": "p0",
+      "title": "Null pointer in handler",
+      "reviewer": "bug",
+      "severity": "high",
+      "category": "null-safety",
+      "file": "src/auth/handler.kt",
+      "line_range": "42-48",
+      "problem": "The `authToken` can...",
+      "suggestion": "Add a null check..."
+    }
+  ],
+  "guidelines": {
+    "expected_files": ["CLAUDE.md"],
+    "expected_directives": [
+      {
+        "parent_path": "CLAUDE.md",
+        "directive_text": "@AGENTS.md",
+        "resolved_path": "AGENTS.md",
+        "exists_at_merge_base": true
+      }
+    ],
+    "pr_added_files": [],
+    "reviewers": {
+      "bug":     { "files_count": 1, "directives_count": 0, "matched": true },
+      "arch":    { "files_count": 1, "directives_count": 0, "matched": true },
+      "quality": { "files_count": 1, "directives_count": 0, "matched": true },
+      "tests":   { "files_count": 1, "directives_count": 0, "matched": true }
+    },
+    "warnings": []
+  }
+}
+```
 
-After the agent returns, print:
+Field rules:
+- `pr.base_sha` and `pr.head_sha`: first 8 characters
+- `issues[].id`: unique across all issues (e.g., `P0-1`, `P1-1`, `P2-1`, `N-1`)
+- `issues[].tier`: one of `p0`, `p1`, `p2`, `nitpick`
+- `issues[].line_range`: `"N-N"` format (single line `12` becomes `"12-12"`), or `null`
+- `verdicts.*`: `"APPROVE"` or `"REQUEST_CHANGES"`
+
+**8b.** Render body + pairs:
+```bash
+python3 ~/.claude/scripts/render-report.py /tmp/pr-review-<PR_NUMBER>.json /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+```
+
+**8c.** Assemble (unchanged):
+```bash
+python3 ~/.claude/scripts/assemble-report.py /tmp/pr-review-<PR_NUMBER>-body.html /tmp/pr-review-<PR_NUMBER>.html --title "PR Review: #<PR_NUMBER> - <pr_title>"
+```
+
+**8d.** Inject diffs (unchanged):
+```bash
+python3 ~/.claude/scripts/inject-diff.py /tmp/pr-review-<PR_NUMBER>.html <worktree_path> <merge_base> --pairs-file /tmp/pr-review-<PR_NUMBER>-pairs.tsv
+```
+
+After the pipeline completes, print:
 ```
 HTML report: /tmp/pr-review-<PR_NUMBER>.html
 ```

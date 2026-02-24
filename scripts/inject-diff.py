@@ -230,6 +230,9 @@ def filter_diff_hunks(raw_diff: str, start_line: int, end_line: int) -> str:
         file_header_lines.append(lines[i])
         i += 1
 
+    # Detect new-file diffs (entire file as a single hunk)
+    is_new_file = any(line.startswith("--- /dev/null") for line in file_header_lines)
+
     # No hunks at all (binary/empty) — return raw diff unchanged
     if i >= len(lines):
         return raw_diff
@@ -288,10 +291,13 @@ def filter_diff_hunks(raw_diff: str, start_line: int, end_line: int) -> str:
         # Trim large hunks to the target range
         body_size = len(body)
         target_span = padded_end - padded_start + 1
-        if body_size > target_span * TRIM_THRESHOLD_FACTOR:
-            parsed = parse_hunk_header(header_line)
-            if parsed:
-                old_s, _, new_s, _ = parsed
+        parsed = parse_hunk_header(header_line)
+        if parsed:
+            old_s, _, new_s, _ = parsed
+            # New-file diffs contain the entire file as one hunk, so always
+            # trim to the relevant section when body exceeds target span.
+            factor = 1 if is_new_file else TRIM_THRESHOLD_FACTOR
+            if body_size > target_span * factor:
                 header_line, body = trim_hunk_to_range(
                     header_line, body, old_s, new_s,
                     padded_start, padded_end,

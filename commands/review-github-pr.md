@@ -143,7 +143,7 @@ The 4 agents to spawn (all via `Task` tool with appropriate `subagent_type`):
 | Task | subagent_type | Focus |
 |---|---|---|
 | Bug Review | `bug-reviewer` | Logic errors, null safety, race conditions, resource leaks, security, data integrity |
-| Architecture Review | `architecture-reviewer` | Design patterns, coupling, API design, caller-impact contracts, separation of concerns |
+| Architecture Review | `architecture-reviewer` | Design patterns, coupling, API design, caller-impact contracts, separation of concerns, resource representation, concurrency/caching mechanisms |
 | Code Quality Review | `code-quality-reviewer` | Readability, naming, DRY, style consistency, maintainability |
 | Test Coverage Review | `test-reviewer` | Test existence, edge cases, assertion quality, test structure |
 

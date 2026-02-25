@@ -40,22 +40,37 @@ If any step fails, stop and report the error.
    - `squash: false` => `off`
    - otherwise default `auto`
 6. Capture `base_hash`: `git -C {repo_root} rev-parse HEAD`.
+7. Parse the `## Verification` section from `{plan_contents}`:
+   - Locate the `## Verification` heading — a line matching exactly `## Verification` (two `#` followed by a space). Collect content until the next level-2 heading (a line starting with `## ` where the third character is a space, not another `#`) or end of file. Sub-headings like `###` within the section are included, not treated as boundaries.
+   - Extract executable commands from:
+     - **Fenced code blocks** tagged with `bash`, `sh`, `shell`, `zsh`, or with no language label. Trim leading whitespace from each line. Join backslash-continued lines (`\` at end of line) with the next line before processing. Each non-blank, non-comment line (after joining) is a command — no prefix validation needed since fenced blocks are unambiguously code. Fenced blocks with other language tags (e.g., `python`, `json`, `yaml`) are skipped.
+     - **Inline backtick commands in list items**: backtick-delimited spans within numbered or bulleted list items. Trim leading/trailing whitespace from the extracted span. **First-word validation** (inline backticks only): extract the first whitespace-delimited word from the span (or the entire span if no whitespace). Accept the span only if the first word starts with `./` or matches one of these command words exactly: `cd`, `git`, `npm`, `npx`, `yarn`, `pnpm`, `gradle`, `gradlew`, `mvn`, `make`, `cargo`, `go`, `python`, `python3`, `pytest`, `docker`, `docker-compose`, `curl`, `grep`. Reject all other backtick spans (e.g., bare identifiers, prose fragments, or non-command words like `pythonVersion`).
+   - **Working directory resolution** — process commands to determine `{cwd, command}` pairs:
+     - **`cd && cmd`** (all sources — fenced blocks and inline backticks): `cd <dir> && <rest>` becomes `{cwd=<dir>, command=<rest>}`.
+     - **Multi-line `cd` in fenced blocks**: a bare `cd <dir>` line (no `&&`) sets the working directory for all subsequent commands in that fenced block, until another `cd` line resets it. The `cd` line itself is not emitted as a command. Example: `cd libraries/catalog-utils` on line 1 sets cwd, `./gradlew test ...` and `./gradlew check` on lines 2-3 inherit that cwd.
+     - **Bare `cd` in inline backticks**: a bare `cd <dir>` (no `&&`) from an inline backtick is discarded — standalone `cd` has no effect since shell state does not persist between Bash calls. Print a warning: `Warning: Discarding bare 'cd <dir>' — use 'cd <dir> && <command>' syntax instead.`
+     - **No `cd` prefix**: the working directory is `{repo_root}`.
+     - **Path resolution**: if `<dir>` is an absolute path, use it as-is. If relative, resolve as `{repo_root}/<dir>`. Canonicalize the result by collapsing all `.` and `..` segments to produce a clean absolute path. After canonicalizing, verify the path starts with `{repo_root}/` (or equals `{repo_root}`). If not, stop and report `Error: Verification cd target resolves outside repository root: <resolved_path>`.
+   - Store as ordered list `{verification_commands}` (each entry: `{cwd, command}`).
+   - If a `## Verification` heading exists but `{verification_commands}` is empty: **stop** and report `Error: Verification section found but no parseable commands extracted. Fix the plan or remove the section.`
+   - If no `## Verification` heading exists at all: print `Warning: Plan has no Verification section. Verification will be skipped.` and proceed.
 
 ## Phase 2: Implement and Initial Commit
 
 1. Implement requested changes from `{plan_contents}`.
 2. Confirm changes exist: `git -C {repo_root} status --porcelain` is non-empty.
 3. Sanity-check your own diff and remove accidental edits.
-4. Stage specific files only:
+4. **Verify**: If `{verification_commands}` is non-empty, run the verification procedure (defined in the Verification Procedure section below).
+5. Stage specific files only:
    - use changed tracked files and untracked files from git output
    - never use `git add -A` or `git add .`
-5. Ensure staged diff is non-empty.
-6. Create commit with substantive subject + body:
+6. Ensure staged diff is non-empty.
+7. Create commit with substantive subject + body:
    - subject:
      - with ticket: `{jira_ticket} <conventional-commit-subject>`
      - without ticket: `<conventional-commit-subject>`
    - body: minimum 3 non-empty lines describing what/why/how
-7. Reject forbidden trailers:
+8. Reject forbidden trailers:
    - `Co-Authored-By:`
    - `Generated with Claude Code`
 
@@ -189,11 +204,27 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
   - Address P0 items first, then P1, then P2; all three tiers must be resolved before the loop can reach `APPROVE` (not single-iteration — the loop continues until reviewers are satisfied or max iterations is hit)
   - implement fixes
   - add/update regression tests when fixing bug/correctness findings (when feasible)
+  - **run verification procedure** (same as Phase 2 step 4)
   - stage specific files only
   - if staged diff is non-empty, create a remediation commit with substantive body
   - increment `iteration` and continue to next review iteration
 
 If `iteration >= max_iterations` and classified verdict is not `APPROVE`, stop and report unresolved issues.
+
+## Verification Procedure
+
+This procedure is referenced by Phase 2 step 4 and Phase 3.3.
+
+Allows up to 3 fix-and-rerun cycles. The initial run is not counted as a fix attempt.
+
+1. Run each command in `{verification_commands}` sequentially via Bash using its parsed `cwd`. Capture exit code and output (tail last ~50 lines on failure for context).
+2. If all commands exit 0: print `Verification passed ({N} commands).` and return success.
+3. If any command fails:
+   - If 3 fixes have already been applied in this invocation: stop and report the failing command, its exit code, and output tail.
+   - Otherwise: read the failure output, diagnose and fix the issue, and go to step 1 (re-run all commands from the start — a fix for one command could break another).
+4. If a formatting command (e.g., `spotlessApply`) modifies files but exits 0, that is not a failure — proceed to the next command.
+
+Each invocation of this procedure starts with a fresh fix count. Verification fix attempts do NOT increment the Phase 3 review `iteration` counter.
 
 ## Phase 4: Optional Squash and Finalize
 
@@ -221,6 +252,9 @@ If `iteration >= max_iterations` and classified verdict is not `APPROVE`, stop a
 | Reviewer unparseable twice | Stop and report reviewer name |
 | Max review iterations reached | Stop and report unresolved issues |
 | Git commit fails | Stop and report git output |
+| Verification section exists but no parseable commands | Stop and report error |
+| No verification section in plan | Warn and skip verification |
+| Verification fails after 3 fix attempts | Stop and report failing command, exit code, and output |
 
 ## Important Rules
 
@@ -231,3 +265,4 @@ If `iteration >= max_iterations` and classified verdict is not `APPROVE`, stop a
 - Keep commits descriptive with real bodies.
 - Never include forbidden trailers.
 - Do not rewrite history unless squash mode resolves to `auto` or `on`.
+- Before every commit (initial or remediation), run verification commands from the plan's ## Verification section. Never commit code that fails verification.

@@ -190,8 +190,8 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
    - **P2**: bug-reviewer severity=low (remaining), architecture-reviewer severity=low, test-reviewer severity=medium or low, code-quality-reviewer severity=medium or low
    - **Nitpick**: any reviewer severity=nitpick
 4. Override the overall verdict:
-   - `REQUEST_CHANGES` if any P0 or P1 issue exists, OR if any reviewer returned `REQUEST_CHANGES` with P2-or-above issues
-   - `APPROVE` otherwise (all reviewers approve, or dissenting reviewers only have nitpick-tier findings)
+   - `REQUEST_CHANGES` if any P0 or P1 issue exists
+   - `APPROVE` otherwise (includes cases where dissenting reviewers only have P2 or nitpick-tier findings)
 
 ### 3.3 Decision
 
@@ -200,8 +200,9 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
   - Before implementing fixes, deduplicate P0/P1/P2 findings across reviewers:
     - If multiple reviewers flag the same file + line(s) range, merge into one fix item
       and note which reviewers flagged it (use `File` + `Line(s)` fields for matching; nitpick-tier items are excluded from deduplication)
-  - Prioritize P0 > P1 > P2
-  - Address P0 items first, then P1, then P2; all three tiers must be resolved before the loop can reach `APPROVE` (not single-iteration — the loop continues until reviewers are satisfied or max iterations is hit)
+  - Prioritize P0 > P1
+  - Address P0 items first, then P1; these tiers must be resolved before the loop can reach `APPROVE`
+  - P2 items: fix opportunistically alongside P0/P1 fixes in the same iteration, but do not force additional review cycles for P2-only findings
   - implement fixes
   - add/update regression tests when fixing bug/correctness findings (when feasible)
   - **run verification procedure** (same as Phase 2 step 4)

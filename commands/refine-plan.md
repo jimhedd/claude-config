@@ -82,6 +82,7 @@ Each critic prompt must include:
 - The full plan: `{plan_contents}`
 - The repo root: `{repo_root}`
 - Instruction to follow that critic's required output format exactly
+- `"Be thorough and skeptical. Flag anything uncertain rather than assuming correctness/completeness. When in doubt, report it as a finding."`
 - Pre-resolved CLAUDE.md guidelines (via markers):
 
 ```
@@ -154,9 +155,15 @@ Classify each finding:
 - **Should-fix**: severity=medium
 - **Nice-to-fix**: severity=low
 
-Deduplicate cross-critic findings targeting the same file/section. If a correctness issue and a completeness gap both point to the same plan section, merge them into a single fix item.
+Deduplicate cross-critic findings targeting the same file/section **or the same claim topic**. If a correctness issue and a completeness gap both address the same concern (e.g., both flag a performance claim), merge them into a single fix item.
 
-If both verdicts are clean (ACCURATE + COMPLETE): exit early — plan is unchanged. Skip to Phase 2 report.
+If both verdicts are clean (ACCURATE + COMPLETE), check evidence depth before exiting:
+- Parse `{N}` (claims verified) from the correctness critic's `#### Evidence` section and `{M}` (symbols traced) from the completeness critic's `#### Evidence` section.
+- Correctness critic must report at least 5 evidence items. If fewer: log warning, re-run that critic once with explicit instruction to verify more claims.
+- Completeness critic must report at least 3 callers-checked evidence items. If fewer: log warning, re-run that critic once with explicit instruction to trace more symbols.
+- Evidence-depth re-run and parse-failure retry (from Phase 1.2) share a single-retry budget per critic — max 1 total retry per critic regardless of reason.
+- If a critic's retry budget is already spent and evidence minimums are still not met, log a warning (e.g., `Warning: <critic-name> evidence depth below threshold after retry budget exhausted`) and proceed as if evidence minimums were met.
+- Only exit early if both critics meet their evidence minimums (or the above fallthrough applies). Skip to Phase 2 report.
 
 ### 1.4 Revise the plan
 
@@ -207,8 +214,8 @@ If both verdicts were clean on the first pass:
 ```
 Plan refinement complete.
   Iterations: 1
-  Correctness: ACCURATE (0 issues)
-  Completeness: COMPLETE (0 gaps)
+  Correctness: ACCURATE (0 issues, {N} claims verified)
+  Completeness: COMPLETE (0 gaps, {M} symbols traced)
   Output: {output_path} (unchanged)
 ```
 
@@ -220,7 +227,7 @@ Plan refinement complete.
 | Both critics unparseable | Stop with error |
 | One critic unparseable | Warn, proceed with other |
 | Not in git repo | Warn, critics use filesystem only |
-| Plan has no verifiable claims | Critics return clean, plan unchanged |
+| Plan has no verifiable claims | Correctness critic may return HAS_ERRORS with low-severity unverifiable-claim issues — orchestrator treats these as Nice-to-fix; if all findings are unverifiable-claim issues only, log them in the refinement log but do not block the plan |
 | CLAUDE.md resolution fails | Warn, proceed without guidelines |
 | No parseable file list in plan | Warn, root-only guidelines probing |
 

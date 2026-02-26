@@ -146,7 +146,12 @@ Hard requirements:
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+
+Confidence definitions:
+- `certain`: Provably triggered on a reachable code path (can cite concrete input or call chain)
+- `likely`: Triggered under realistic conditions (plausible input or configuration)
+- `speculative`: Requires an unusual or unconfirmed precondition to trigger
 
 ```
 ## Review: Code Quality
@@ -231,6 +236,7 @@ OR (request changes):
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
+- **Confidence**: certain | likely | speculative
 - **Category**: readability | naming | duplication | style | maintainability | complexity | documentation | idiomatic-construct | stdlib-usage | error-handling-idiom | type-system | concurrency-pattern | style-guide-compliance
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific, actionable fix>

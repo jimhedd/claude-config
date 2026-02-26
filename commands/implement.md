@@ -65,6 +65,7 @@ If any step fails, stop and report the error.
    - The repo root: `{repo_root}`
    - The full plan: `{plan_contents}`
    - Target file list: if `{expected_files}` is non-empty, include `Implement changes for these files: <list>`. If `{expected_files}` is empty, include `Implement all changes described in the plan.`
+   - Include: `After implementing all files, perform the self-validation step described in your agent rules before writing your completion report.`
    On retries, the target file list is always narrowed to remaining files only.
 
    **Step 1c — Invariant check** (run after EVERY implementer return, before any retry or continuation):
@@ -112,47 +113,104 @@ Set:
 
 - `iteration = 0`
 - `max_iterations = 7`
+- `{last_review_hash} = null`
+- `{last_iteration_issues} = null`
+- `{active_reviewers}` = all 4 reviewers (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer)
+- `{degraded_consecutive}` = map of reviewer-name to consecutive-failure count (initialized to 0 for each)
 
 Repeat until all reviewers approve or max iterations reached.
 
 ### 3.1 Run all reviewers in parallel
 
-Resolve project guidelines via the CLAUDE.md resolution script:
-```bash
-python3 ~/.claude/scripts/resolve-claude-md.py \
-  --git-dir {repo_root} \
-  --merge-base {base_hash} \
-  --ref-range {base_hash}..HEAD \
-  --depth 5 \
-  --check-head
-```
+Resolve project guidelines via the CLAUDE.md resolution script (with caching):
 
-Parse the JSON output and store:
-- `ancestor_dirs_list` — for reference in reviewer prompts
-- `expected_guidelines` — for cross-checking
-- `expected_directives` — for cross-checking (filter to depth<=2 for orchestrator expectations)
-- `pr_added_guidelines` — for CLI report
-- `warnings` — print each as `⚠ <warning text>`
-- `resolved_content` — to include in reviewer prompts
-- `guidelines_loaded_section` — to include in reviewer prompts
+If `iteration == 0`:
+  - Run:
+    ```bash
+    python3 ~/.claude/scripts/resolve-claude-md.py \
+      --git-dir {repo_root} \
+      --merge-base {base_hash} \
+      --ref-range {base_hash}..HEAD \
+      --depth 5 \
+      --check-head
+    ```
+  - Parse the JSON output and store:
+    - `ancestor_dirs_list` — for reference in reviewer prompts
+    - `expected_guidelines` — for cross-checking
+    - `expected_directives` — for cross-checking (filter to depth<=2 for orchestrator expectations)
+    - `pr_added_guidelines` — for CLI report
+    - `warnings` — print each as `⚠ <warning text>`
+    - `resolved_content` — to include in reviewer prompts
+    - `guidelines_loaded_section` — to include in reviewer prompts
+  - Store output as `{cached_guidelines_json}`.
+  - Store the ancestor directory set as `{cached_ancestor_dirs}`.
+
+If `iteration > 0`:
+  - Compute new directories from remediation delta:
+    `git -C {repo_root} diff --name-only {last_review_hash}..HEAD`
+    Extract ancestor directories from these paths.
+  - If all new ancestor directories are a subset of `{cached_ancestor_dirs}`:
+    Reuse `{cached_guidelines_json}` — set `resolved_content`, `guidelines_loaded_section`,
+    etc. from cache. Log: "Guidelines: reusing cached resolution (no new ancestor directories from remediation)."
+  - If new directories appear:
+    Re-run `resolve-claude-md.py` with the full range. Update `{cached_guidelines_json}`
+    and `{cached_ancestor_dirs}`. Log: "Guidelines: re-resolving (N new ancestor directories from remediation)."
 
 If the script exits non-zero, stop and report the error.
 If `warnings` is non-empty, print all warnings but do not treat them as fatal.
 
-Run these 4 subagents every iteration:
+If `iteration > 0` and `{last_iteration_issues}` is not null, construct a `Prior Iteration Context` block to append to each reviewer's prompt. Use the current `{last_review_hash}` (which still points to the previous iteration's HEAD) for STATUS determination — do NOT update it yet:
+
+After constructing the Prior Iteration Context block (or skipping it for iteration 0), capture `{last_review_hash}`: set to `git -C {repo_root} rev-parse HEAD` immediately before launching reviewers. This captures the HEAD that reviewers will analyze. It persists unchanged until the next iteration's reviewer launch.
+
+```
+Prior Iteration Context (iteration {N-1}):
+The following issues were raised in the previous review iteration:
+
+[For each issue, up to 10 highest-priority:]
+- [{P-tier}] {source-reviewer}: {issue-title} at {file}:{lines} — {STATUS}
+
+STATUS is determined by the orchestrator (heuristic — reviewers should verify):
+- LIKELY_FIXED: remediation commit (git diff {last_review_hash}..HEAD) touched the flagged
+  file. This is a heuristic hint — the touched file may contain a nearby edit, formatting
+  change, or incomplete fix. Reviewers MUST verify the original concern was actually resolved.
+  If it was not, re-raise it.
+- DEFERRED_P2: P2 or nitpick issue, intentionally not fixed — do NOT re-raise unless
+  the relevant code has changed in a way that increases severity
+- OPEN: P0/P1 that should have been fixed — verify the remediation was adequate
+
+[If more than 10 issues: "Plus N additional P2/nitpick items, all deferred."]
+
+Focus your review on:
+1. Verifying OPEN items were adequately resolved
+2. Verifying LIKELY_FIXED items — confirm the fix actually addresses the concern;
+   re-raise if the fix is incomplete or cosmetic
+3. NOT re-raising DEFERRED_P2 items unless code changes increased their severity
+```
+
+To determine STATUS for each prior issue:
+- For P0/P1 issues: check if `git -C {repo_root} diff --name-only {last_review_hash}..HEAD` includes the flagged file. If yes, mark as LIKELY_FIXED; if no, mark as OPEN.
+- For P2/nitpick issues: mark as DEFERRED_P2.
+
+Run these subagents every iteration (from `{active_reviewers}`):
 
 - `code-quality-reviewer`
 - `architecture-reviewer`
 - `test-reviewer`
 - `bug-reviewer`
 
-Launch all 4 as parallel Task calls in a single message. Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn.
+Launch all active (non-dropped) reviewers as parallel Task calls in a single message. Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn.
+
+CRITICAL: You MUST emit Task calls for ALL active reviewers in your NEXT single message — not 1 then the rest, not split across turns. When all 4 reviewers are active, this means 4 Task calls. If reviewers have been dropped (see Section 3.2 step 2 — parse failure handling), emit one Task call per remaining active reviewer. Pre-compute all reviewer prompt strings (diff context, guidelines, plan summary) before emitting any Task call. If your response contains fewer Task calls than the current active reviewer count, you have violated this rule.
+
+After all reviewers return: if you detect (from your own message history) that reviewer Task calls were spread across more than one turn, log: "Warning: Reviewers launched across N turns instead of 1 — parallelism degraded."
 
 Each reviewer prompt must include:
 
 - compact plan summary from `{plan_contents}`
 - commit context: `git -C {repo_root} log {base_hash}..HEAD`
 - instruction to follow that reviewer's required output format exactly
+- Prior Iteration Context block (if `iteration > 0` and `{last_iteration_issues}` is not null — see above)
 - the following file-read, git instructions, and pre-resolved guidelines block:
 
 ```
@@ -180,7 +238,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
 
 1. For each reviewer, attempt to parse:
    - Exactly one verdict: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
-   - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, category, problem, suggestion
+   - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, confidence, category, problem, suggestion. Extract the `**Confidence**` field from each issue. If the field is missing (e.g., reviewer did not include it), default to `likely`.
    - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully. Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
    - `#### Guidelines Loaded` section: extract guideline entries and directive sub-items separately.
      - **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`
@@ -212,18 +270,50 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
    sole guidelines visibility point, deliberately compact to avoid noise in the review loop.
    - If `expected_guidelines` is empty: `Guidelines: No CLAUDE.md files found in ancestor directories.`
    - Otherwise: `Guidelines: <N> CLAUDE.md files, <M> @ directives` (counts from `expected_guidelines` and `expected_directives`)
-     - If all reviewers matched expectations: `  Reviewers: <N>/4 matched` (where N = number of reviewers with parseable output)
+     - If all reviewers matched expectations: `  Reviewers: <N>/<active> matched` (where N = number of reviewers with parseable output, active = len({active_reviewers}) this iteration)
      - For any warnings: emit one `  ⚠ <reviewer-name>: <warning summary>` line per warning
    - If `pr_added_guidelines` is non-empty, append: `  PR-added (skipped): <path>, ...`
-2. **Parse failure handling**: if a reviewer's output is unparseable, rerun that reviewer once. If still unparseable on retry, stop and report the reviewer name for manual intervention.
+2. **Parse failure handling**:
+   - If a reviewer's output is unparseable, rerun that reviewer once.
+   - If still unparseable on retry:
+     a. Log: "Warning: {reviewer-name} produced unparseable output after retry.
+        Continuing with {N} of len({active_reviewers}) active reviewers."
+     b. Mark that reviewer as `degraded` for this iteration. Increment
+        `{degraded_consecutive}[reviewer-name]`.
+     c. Proceed with classification using only successfully parsed reviewers.
+   - If a reviewer parses successfully, reset `{degraded_consecutive}[reviewer-name]` to 0.
+   - Minimum thresholds (both must be satisfied, checked against the original
+     4 reviewers — not the dynamic active count):
+     a. At least 2 reviewers produced parseable output this iteration.
+     b. At least one P0-capable reviewer (bug-reviewer or architecture-reviewer)
+        produced parseable output this iteration. If both P0-capable reviewers
+        are degraded, stop and report — the loop cannot safely approve without
+        correctness coverage.
+     If either threshold is violated, stop and report which reviewers failed.
+   - Special case: if bug-reviewer alone is degraded (architecture-reviewer is OK),
+     log a prominent warning:
+     "Warning: bug-reviewer degraded — correctness coverage reduced. architecture-reviewer
+     provides partial P0 coverage for this iteration."
+   - Re-attempt degraded reviewers on the next iteration (they may succeed on a
+     simpler diff after remediation).
+   - If a reviewer's `{degraded_consecutive}` count reaches 3, drop it from
+     `{active_reviewers}` and log: "Warning: {reviewer-name} dropped after 3
+     consecutive failures." The minimum thresholds above still apply after
+     dropping — if dropping a reviewer would violate a threshold, stop instead
+     of dropping.
 3. Classify every successfully parsed issue into P0/P1/P2/nitpick. Classification rules are **scoped by source reviewer** — the reviewer that produced the issue determines which rule applies:
    - **P0**: bug-reviewer severity=high (any category), bug-reviewer severity=medium AND category in {security, data-integrity, race-condition}, architecture-reviewer severity=high
    - **P1**: bug-reviewer severity=medium (remaining), bug-reviewer severity=low AND category in {security, data-integrity}, architecture-reviewer severity=medium, test-reviewer severity=high, code-quality-reviewer severity=high
    - **P2**: bug-reviewer severity=low (remaining), architecture-reviewer severity=low, test-reviewer severity=medium or low, code-quality-reviewer severity=medium or low
    - **Nitpick**: any reviewer severity=nitpick
+3b. **Confidence adjustment** (applied after severity classification):
+   - If confidence=speculative: downgrade one tier (P0->P1, P1->P2, P2->Nitpick, Nitpick stays Nitpick)
+   - If confidence=certain or likely: no adjustment
+   - Log each downgrade: "Downgraded: {title} {from}->{to}, confidence=speculative"
 4. Override the overall verdict:
    - `REQUEST_CHANGES` if any P0 or P1 issue exists
    - `APPROVE` otherwise (includes cases where dissenting reviewers only have P2 or nitpick-tier findings)
+5. Store `{last_iteration_issues}`: set to the full classified issue list (all P-tiers) after parsing and classification completes. This is read when constructing the Prior Iteration Context block for the next iteration.
 
 ### 3.3 Decision
 
@@ -267,8 +357,17 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
    - `auto`: squash only when commit count > 1
    - `on`: squash when commit count > 1
 3. If squashing:
-   - `git -C {repo_root} reset --soft {base_hash}`
-   - create one clean final commit describing final implementation (not review process)
+   a. Capture `{pre_squash_head}`: `git -C {repo_root} rev-parse HEAD`
+   b. Create backup: `git -C {repo_root} tag implement-backup/{branch} HEAD`
+      (If tag already exists from a prior run, delete it first and recreate.)
+   c. `git -C {repo_root} reset --soft {base_hash}`
+   d. Create one clean final commit describing final implementation (not review process)
+   e. If commit succeeds: delete the backup tag:
+      `git -C {repo_root} tag -d implement-backup/{branch}`
+   f. If commit fails: restore the branch:
+      `git -C {repo_root} reset --hard {pre_squash_head}`
+      Report: "Squash commit failed. Branch restored to pre-squash state
+      ({pre_squash_head}). Original commits preserved."
 4. Show final commit: `git -C {repo_root} log -1 --pretty=full`.
 5. Report final commit hash and subject.
 
@@ -282,7 +381,9 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
 | No plan selected | Stop |
 | No changes after implementation | Stop with `No changes produced` |
 | Staged diff empty | Stop with `Nothing staged` |
-| Reviewer unparseable twice | Stop and report reviewer name |
+| Reviewer unparseable twice | Mark degraded, continue if minimum thresholds met (see 3.2 step 2); stop if thresholds violated |
+| Squash commit fails | Restore branch to pre-squash HEAD, report error |
+| Both P0-capable reviewers degraded | Stop and report — cannot safely approve without correctness coverage |
 | Max review iterations reached | Stop and report unresolved issues |
 | Git commit fails | Stop and report git output |
 | Verification section exists but no parseable commands | Stop and report error |
@@ -300,7 +401,7 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
 
 - Never use `git add -A` or `git add .`.
 - Always run git commands as `git -C {repo_root} ...` after preflight.
-- Always run all 4 reviewers each iteration.
+- Always run all active (non-dropped) reviewers each iteration.
 - Keep review prompts compact and focused on `{base_hash}..HEAD`.
 - Keep commits descriptive with real bodies.
 - Never include forbidden trailers.

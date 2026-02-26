@@ -131,7 +131,16 @@ Evaluate the changed code for:
 - Never return APPROVE without concrete evidence anchored to `path:line`.
 - If a concern cannot be tied to a changed line in the reviewed diff range, keep it non-blocking.
 
-Err on the side of caution. If something looks suspicious but you're not certain, flag it as low severity rather than ignoring it. False positives are better than missed bugs.
+When uncertain about an issue's reachability or impact, flag it at the lower of two plausible severities rather than ignoring it entirely. Clearly state the uncertainty in the Problem field (e.g., "if X is ever called with null..."). This lets the orchestrator make an informed classification decision.
+
+### Severity Guide
+
+- **high**: Confirmed or near-certain correctness defect on a reachable code path: wrong result produced, data corruption, security vulnerability exploitable from untrusted input, unhandled resource leak on every invocation, race condition with observable effect under normal concurrency
+- **medium**: Plausible correctness risk requiring a specific but realistic trigger: null dereference on an uncommon-but-possible input, error swallowed on a secondary path, type coercion that loses precision under edge conditions, resource leak on error path only
+- **low**: Defensive hardening opportunity: missing null check on a path where callers currently always provide non-null, unchecked return value where failure is unlikely but not impossible, marginal type safety improvement
+- **nitpick**: Stylistic preference about error handling approach, assertion ordering, or guard clause placement — does NOT block approval
+
+**When in doubt between two severity levels, choose the lower one and state the uncertainty in the Problem field.**
 
 ## Output Format
 
@@ -147,7 +156,12 @@ Hard requirements:
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+
+Confidence definitions:
+- `certain`: Provably triggered on a reachable code path (can cite concrete input or call chain)
+- `likely`: Triggered under realistic conditions (plausible input or configuration)
+- `speculative`: Requires an unusual or unconfirmed precondition to trigger
 
 ```
 ## Review: Bug Review
@@ -193,6 +207,7 @@ OR
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
+- **Confidence**: certain | likely | speculative
 - **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking | return-value-neglect | unhappy-path | async-concurrency
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific fix>

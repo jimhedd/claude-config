@@ -136,6 +136,15 @@ If the project has little/no testing infrastructure:
 When uncertain whether to block, use this tiebreaker:
 - Block only if the missing test coverage creates a credible chance of shipping a regression that would be hard to detect quickly.
 
+### Severity Guide
+
+- **high**: Missing tests for a high-risk behavior change (money/data writes, auth, concurrency, parsing, migrations, bug fixes) where a regression would be difficult to detect without the test, OR test dilution that removes the only regression signal for a critical path
+- **medium**: Missing tests for medium-risk behavior change (non-trivial branching, state transitions, cross-module contracts), OR weak assertions that would pass under a common mutation (off-by-one, inverted condition)
+- **low**: Missing edge case test for low-risk code, minor assertion that could be more specific, slight test structure improvement, stale test name after rename
+- **nitpick**: Subjective test organization preference, test naming style — does NOT block approval
+
+**When in doubt between two severity levels, choose the lower one.**
+
 ## Output Format
 
 You MUST return your review in exactly this format:
@@ -150,7 +159,12 @@ Hard requirements:
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
-  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+  - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
+
+Confidence definitions:
+- `certain`: Provably triggered on a reachable code path (can cite concrete input or call chain)
+- `likely`: Triggered under realistic conditions (plausible input or configuration)
+- `speculative`: Requires an unusual or unconfirmed precondition to trigger
 
 ```
 ## Review: Test Coverage
@@ -228,6 +242,7 @@ OR
 - **Line(s)**: 42-48
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
+- **Confidence**: certain | likely | speculative
 - **Category**: missing-test | edge-case | test-quality | mutation-survival | assertions | regression-integrity | test-structure | rename-consistency | contract-shift | ordering-mapping
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific test to add or improve>

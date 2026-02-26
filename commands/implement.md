@@ -57,7 +57,37 @@ If any step fails, stop and report the error.
 
 ## Phase 2: Implement and Initial Commit
 
-1. Implement requested changes from `{plan_contents}`.
+1. **Delegate implementation to sub-agent**:
+
+   **Step 1a — Parse file list**: Extract a file list from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (e.g., bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{expected_files}`. If no parseable file list is found, log `Warning: Plan has no parseable file list — completeness tracking will be limited to the implementer's self-report.` and set `{expected_files}` to empty.
+
+   **Step 1b — Launch implementer**: Launch a Task call with `subagent_type: implementer`, passing:
+   - The repo root: `{repo_root}`
+   - The full plan: `{plan_contents}`
+   - Target file list: if `{expected_files}` is non-empty, include `Implement changes for these files: <list>`. If `{expected_files}` is empty, include `Implement all changes described in the plan.`
+   On retries, the target file list is always narrowed to remaining files only.
+
+   **Step 1c — Invariant check** (run after EVERY implementer return, before any retry or continuation):
+   - `git -C {repo_root} rev-parse HEAD` must equal `{base_hash}` (catches commits, resets, rebases)
+   - `git -C {repo_root} diff --cached --name-only` must be empty (catches prohibited `git add`)
+
+   Recovery depends on which check failed:
+   - **HEAD moved**: run `git -C {repo_root} reset --hard {base_hash}` to restore the branch. Report untracked files via `git -C {repo_root} clean -dn`. Stop with error: `Implementer moved HEAD — branch has been reset to {base_hash}. Tracked file changes are lost. Untracked files may remain: <list>. Retry from scratch.`
+   - **Index dirty (HEAD unchanged)**: run `git -C {repo_root} reset HEAD` to unstage. Working tree edits are preserved. Stop with error: `Implementer staged files — index has been cleaned, working tree edits preserved, review before retrying.`
+
+   **Step 1d — Collect changed files**: Set `{changed_files}` to the union of:
+   - `git -C {repo_root} diff --name-only` (modified tracked files)
+   - `git -C {repo_root} ls-files --others --exclude-standard` (newly created untracked files)
+
+   **Step 1e — Parse completion report and handle retries**:
+   - If the report is **missing or malformed** (no parseable `Status:` line, or `Files completed`/`Files remaining` not extractable): derive remaining files by taking `{expected_files}` NOT present in `{changed_files}`. Files in `{changed_files}` are treated as done. If `{expected_files}` is empty, cannot determine remaining — proceed to step 1f and rely on verification/review.
+   - If `Status: complete`: cross-check by verifying every file in `{expected_files}` appears in `{changed_files}`. Any expected file missing is logged as a warning (`Warning: Implementer reports complete but <file> not in changed files — may be intentionally unchanged or missed`). Do NOT force a retry. Proceed to step 1f.
+   - If `Status: partial` — continue to retry path below.
+   - **Retry path**: launch another implementer Task for the remaining files only. The prompt explicitly lists only the `Files remaining` as the target. After each retry, run the invariant check (step 1c) and re-collect `{changed_files}` (step 1d) again. Repeat until all files are complete or 3 implementer attempts have been made.
+   - If 3 attempts are exhausted with files still remaining — stop and report which files were not implemented.
+
+   **Step 1f — Proceed**: Continue to step 2.
+
 2. Confirm changes exist: `git -C {repo_root} status --porcelain` is non-empty.
 3. Sanity-check your own diff and remove accidental edits.
 4. **Verify**: If `{verification_commands}` is non-empty, run the verification procedure (defined in the Verification Procedure section below).
@@ -256,6 +286,12 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
 | Verification section exists but no parseable commands | Stop and report error |
 | No verification section in plan | Warn and skip verification |
 | Verification fails after 3 fix attempts | Stop and report failing command, exit code, and output |
+| Implementer moved HEAD | `git reset --hard {base_hash}`, report untracked residue, stop |
+| Implementer staged files (HEAD unchanged) | `git reset HEAD`, stop (working tree preserved) |
+| 3 implementer attempts exhausted with remaining files | Stop and report unimplemented files |
+| Implementer report malformed, expected files available | Derive remaining from diff, retry untouched files only |
+| Implementer report malformed, no expected files | Warn, proceed (verification + review catch gaps) |
+| Implementer reports complete but expected file has no diff | Warn (may be intentional), proceed |
 
 ## Important Rules
 
@@ -265,5 +301,6 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
 - Keep review prompts compact and focused on `{base_hash}..HEAD`.
 - Keep commits descriptive with real bodies.
 - Never include forbidden trailers.
-- Do not rewrite history unless squash mode resolves to `auto` or `on`.
+- Phase 2 implementation must be delegated to the `implementer` sub-agent — do not implement plan changes directly in the orchestrator context.
+- Do not rewrite history unless squash mode resolves to `auto` or `on`, or when recovering from an implementer invariant violation (restoring `{base_hash}`).
 - Before every commit (initial or remediation), run verification commands from the plan's ## Verification section. Never commit code that fails verification.

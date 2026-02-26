@@ -7,10 +7,11 @@
     ],
     "deny": []
   },
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
-	"matcher": "permission_prompt|elicitation_dialog|idle_prompt",
+        "matcher": "permission_prompt|elicitation_dialog|idle_prompt",
         "hooks": [
           {
             "type": "command",
@@ -43,7 +44,6 @@
     "ralph-wiggum@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
-  "mcpServers": {
-  },
-  "model": "opus"
+  "mcpServers": {},
+  "skipDangerousModePermissionPrompt": true
 }

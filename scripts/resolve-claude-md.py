@@ -470,6 +470,8 @@ def main():
     parser.add_argument("--budget", type=int, default=8000, help="Char budget")
     parser.add_argument("--check-head", action="store_true",
                         help="Also probe HEAD for pr_added_guidelines")
+    parser.add_argument("--files", nargs="*", default=None,
+                        help="Explicit file list for ancestor-dir computation (alternative to --ref-range)")
 
     args = parser.parse_args()
 
@@ -483,6 +485,9 @@ def main():
     if args.check_head and not args.merge_base:
         print("Error: --check-head requires --merge-base", file=sys.stderr)
         sys.exit(1)
+    if args.files is not None and args.ref_range:
+        print("Error: --files and --ref-range are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
 
     git_dir = args.git_dir
     ref = args.merge_base if args.merge_base else None
@@ -495,6 +500,8 @@ def main():
             print(f"Error: git diff --name-only failed: {result.stderr}", file=sys.stderr)
             sys.exit(1)
         changed_files = [f for f in result.stdout.strip().split("\n") if f]
+    elif args.files is not None:
+        changed_files = [f for f in args.files if f]
 
     ancestor_dirs = compute_ancestor_dirs(changed_files)
     sorted_dirs = sort_ancestor_dirs(ancestor_dirs)

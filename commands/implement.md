@@ -61,12 +61,52 @@ If any step fails, stop and report the error.
 
    **Step 1a — Parse file list**: Extract a file list from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (e.g., bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{expected_files}`. If no parseable file list is found, log `Warning: Plan has no parseable file list — completeness tracking will be limited to the implementer's self-report.` and set `{expected_files}` to empty. Store all paths as repo-relative (strip any leading `{repo_root}/` or `./` prefix). This ensures consistent comparison with `{changed_files}` in Step 1d.
 
+   **Step 1a2 — Resolve project guidelines for implementer**: Resolve CLAUDE.md guidelines scoped to the expected files. Since the orchestrator builds Bash commands via string interpolation (not structured argv), each file path must be **single-quoted** to prevent all shell expansion (`$`, backticks, `$()`, globbing, word splitting):
+
+   If `{expected_files}` is non-empty:
+
+   ```bash
+   python3 ~/.claude/scripts/resolve-claude-md.py \
+     --git-dir {repo_root} \
+     --merge-base {base_hash} \
+     --files 'path/to/file1' 'path/to/file2' ... \
+     --depth 5
+   ```
+
+   Each element of `{expected_files}` is passed as a separate single-quoted argument after `--files`. Single quotes block all shell expansion — no variable substitution, no command substitution, no globbing. Do NOT use double quotes (which allow `$()` expansion) or join paths into a single string. If a path contains a literal single quote, escape it using the POSIX idiom `'\''` (end quote, escaped quote, restart quote).
+
+   If `{expected_files}` is empty, resolve with root-only scope (omit `--files`):
+
+   ```bash
+   python3 ~/.claude/scripts/resolve-claude-md.py \
+     --git-dir {repo_root} \
+     --merge-base {base_hash} \
+     --depth 5
+   ```
+
+   **Error handling** — distinguish script failure from empty results:
+   - If the script exits non-zero: **stop and report the error** (e.g., bad invocation, JSON parse failure, git error). Do not silently continue — this masks real bugs.
+   - If the script exits 0 but `resolved_content` is empty: set `{implementer_guidelines}` to empty and log: `Guidelines: No CLAUDE.md files found for implementer scope.` This is normal for repos without CLAUDE.md.
+   - If the script exits 0 and `resolved_content` is non-empty: store the text as `{implementer_guidelines}` and log: `Guidelines: Resolved for implementer ({N} chars).`
+
    **Step 1b — Launch implementer**: Launch a Task call with `subagent_type: implementer`, passing:
    - The repo root: `{repo_root}`
    - The full plan: `{plan_contents}`
    - Target file list: if `{expected_files}` is non-empty, include `Implement changes for these files: <list>`. If `{expected_files}` is empty, include `Implement all changes described in the plan.`
    - Include: `After implementing all files, perform the self-validation step described in your agent rules before writing your completion report.`
+   - If `{implementer_guidelines}` is non-empty, include the following block:
+
+   ```
+   Project Guidelines (pre-resolved from CLAUDE.md files):
+   ---BEGIN GUIDELINES---
+   {implementer_guidelines}
+   ---END GUIDELINES---
+
+   Follow these project guidelines when implementing changes. They define project-specific conventions for naming, patterns, style, and structure.
+   ```
+
    On retries, the target file list is always narrowed to remaining files only.
+   On retries, the same `{implementer_guidelines}` block is included unchanged.
 
    **Step 1c — Invariant check** (run after EVERY implementer return, before any retry or continuation):
    - `git -C {repo_root} rev-parse HEAD` must equal `{base_hash}` (catches commits, resets, rebases)

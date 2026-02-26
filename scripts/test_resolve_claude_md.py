@@ -475,6 +475,124 @@ class TestMainIntegration:
         assert "CLAUDE.md" in gl
         assert "@AGENTS.md" in gl
 
+    def test_files_flag_discovers_ancestor_dirs(self, tmp_path):
+        """Test --files discovers correct ancestor dirs and resolves CLAUDE.md."""
+        self._init_git_repo(tmp_path)
+        # Create root CLAUDE.md with @AGENTS.md directive
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Project\n@AGENTS.md\n")
+        agents = tmp_path / "AGENTS.md"
+        agents.write_text("Agent rules from AGENTS.md")
+        # Create a file at src/services/handler.py
+        src_services = tmp_path / "src" / "services"
+        src_services.mkdir(parents=True)
+        (src_services / "handler.py").write_text("print('handler')")
+        subprocess.run(
+            ["git", "add", "."], cwd=str(tmp_path),
+            capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(tmp_path),
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        script = os.path.join(os.path.dirname(__file__), "resolve-claude-md.py")
+        result = subprocess.run(
+            [
+                "python3", script,
+                "--git-dir", str(tmp_path),
+                "--merge-base", base,
+                "--files", "src/services/handler.py",
+                "--depth", "5",
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        import json
+        output = json.loads(result.stdout)
+        # Verify ancestor dirs include src/services, src, (root)
+        ancestor_dirs = output["ancestor_dirs_list"]
+        assert "src/services" in ancestor_dirs
+        assert "src" in ancestor_dirs
+        assert "(root)" in ancestor_dirs
+        # Verify AGENTS.md directive was expanded
+        assert "Agent rules from AGENTS.md" in output["resolved_content"]
+
+    def test_files_and_ref_range_mutually_exclusive(self, tmp_path):
+        """Test --files and --ref-range cannot be used together."""
+        self._init_git_repo(tmp_path)
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Project\n")
+        subprocess.run(
+            ["git", "add", "."], cwd=str(tmp_path),
+            capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(tmp_path),
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        script = os.path.join(os.path.dirname(__file__), "resolve-claude-md.py")
+        result = subprocess.run(
+            [
+                "python3", script,
+                "--git-dir", str(tmp_path),
+                "--merge-base", base,
+                "--ref-range", f"{base}..HEAD",
+                "--files", "src/main.py",
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode != 0
+        assert "mutually exclusive" in result.stderr
+
+    def test_files_flag_handles_paths_with_spaces(self, tmp_path):
+        """Test --files handles paths with spaces correctly."""
+        self._init_git_repo(tmp_path)
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Project\n")
+        # Create a file at "src/my module/handler.py"
+        my_module = tmp_path / "src" / "my module"
+        my_module.mkdir(parents=True)
+        (my_module / "handler.py").write_text("print('handler')")
+        subprocess.run(
+            ["git", "add", "."], cwd=str(tmp_path),
+            capture_output=True, check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=str(tmp_path), capture_output=True, check=True,
+        )
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(tmp_path),
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        script = os.path.join(os.path.dirname(__file__), "resolve-claude-md.py")
+        result = subprocess.run(
+            [
+                "python3", script,
+                "--git-dir", str(tmp_path),
+                "--merge-base", base,
+                "--files", "src/my module/handler.py",
+                "--depth", "5",
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        import json
+        output = json.loads(result.stdout)
+        # Verify ancestor dirs include "src/my module", "src", "(root)"
+        ancestor_dirs = output["ancestor_dirs_list"]
+        assert "src/my module" in ancestor_dirs
+        assert "src" in ancestor_dirs
+        assert "(root)" in ancestor_dirs
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

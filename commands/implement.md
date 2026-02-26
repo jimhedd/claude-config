@@ -59,7 +59,7 @@ If any step fails, stop and report the error.
 
 1. **Delegate implementation to sub-agent**:
 
-   **Step 1a — Parse file list**: Extract a file list from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (e.g., bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{expected_files}`. If no parseable file list is found, log `Warning: Plan has no parseable file list — completeness tracking will be limited to the implementer's self-report.` and set `{expected_files}` to empty.
+   **Step 1a — Parse file list**: Extract a file list from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (e.g., bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{expected_files}`. If no parseable file list is found, log `Warning: Plan has no parseable file list — completeness tracking will be limited to the implementer's self-report.` and set `{expected_files}` to empty. Store all paths as repo-relative (strip any leading `{repo_root}/` or `./` prefix). This ensures consistent comparison with `{changed_files}` in Step 1d.
 
    **Step 1b — Launch implementer**: Launch a Task call with `subagent_type: implementer`, passing:
    - The repo root: `{repo_root}`
@@ -78,6 +78,8 @@ If any step fails, stop and report the error.
    **Step 1d — Collect changed files**: Set `{changed_files}` to the union of:
    - `git -C {repo_root} diff --name-only` (modified tracked files)
    - `git -C {repo_root} ls-files --others --exclude-standard` (newly created untracked files)
+
+   If `{expected_files}` is non-empty, compute `{unexpected_files}` = files in `{changed_files}` that are not in `{expected_files}`. All paths must be compared as repo-relative (`git diff --name-only` and `git ls-files --others --exclude-standard` already output repo-relative paths; `{expected_files}` must also be stored as repo-relative paths, stripped of any leading `./` or `{repo_root}/` prefix). If `{unexpected_files}` is non-empty, log a warning for each: `Warning: Implementer modified unexpected file: <file> — not in expected file list.` This is a warning, not a hard stop — legitimate cases include auto-generated files and import reorganization. Phase 2 step 3 ("sanity-check your own diff and remove accidental edits") acts on this information.
 
    **Step 1e — Parse completion report and handle retries**:
    - If the report is **missing or malformed** (no parseable `Status:` line, or `Files completed`/`Files remaining` not extractable): derive remaining files by taking `{expected_files}` NOT present in `{changed_files}`. Files in `{changed_files}` are treated as done. If `{expected_files}` is empty, cannot determine remaining — proceed to step 1f and rely on verification/review.
@@ -292,6 +294,7 @@ Each invocation of this procedure starts with a fresh fix count. Verification fi
 | Implementer report malformed, expected files available | Derive remaining from diff, retry untouched files only |
 | Implementer report malformed, no expected files | Warn, proceed (verification + review catch gaps) |
 | Implementer reports complete but expected file has no diff | Warn (may be intentional), proceed |
+| Implementer modified files outside expected list | Warn per file (step 3 sanity-check can revert) |
 
 ## Important Rules
 

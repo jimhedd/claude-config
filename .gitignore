@@ -46,3 +46,4 @@ teams/
 backups/
 image-cache/
 worktrees/
+mcp-needs-auth-cache.json

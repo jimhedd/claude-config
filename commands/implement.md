@@ -279,7 +279,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
 1. For each reviewer, attempt to parse:
    - Exactly one verdict: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
    - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, confidence, category, problem, suggestion. Extract the `**Confidence**` field from each issue. If the field is missing (e.g., reviewer did not include it), default to `likely`.
-   - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully. Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
+   - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (bug-reviewer, architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully.
    <!-- SYNC: Guidelines cross-check — keep in sync with review-github-pr.md Step 5, refine-plan.md Phase 1.2 -->
    - `#### Guidelines Loaded` section: extract guideline entries and directive sub-items separately.
      - **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`

@@ -123,8 +123,8 @@ Evaluate the changed code for:
 
 ## Decision Rules
 
-- **APPROVE**: No issues found at any severity level
-- **REQUEST_CHANGES**: Any issue found (even low severity)
+- **APPROVE**: No issues at low severity or above. Nitpick-only findings still get APPROVE (list nitpicks in the body).
+- **REQUEST_CHANGES**: Any issue at low severity or above.
 - **REQUEST_CHANGES**: Any credible sign that correctness risk is being hidden rather than fixed, even if the mechanism appears in tests.
 - **REQUEST_CHANGES**: Tests intended to prove value-preservation/passthrough semantics rely on default/indistinguishable fixtures or assertions that would also pass under fallback behavior.
 - **REQUEST_CHANGES**: Grouping/dedup/index-remap/row-mapping changes that lack credible ordering/mapping correctness evidence.
@@ -138,7 +138,7 @@ When uncertain about an issue's reachability or impact, flag it at the lower of 
 - **high**: Confirmed or near-certain correctness defect on a reachable code path: wrong result produced, data corruption, security vulnerability exploitable from untrusted input, unhandled resource leak on every invocation, race condition with observable effect under normal concurrency
 - **medium**: Plausible correctness risk requiring a specific but realistic trigger: null dereference on an uncommon-but-possible input, error swallowed on a secondary path, type coercion that loses precision under edge conditions, resource leak on error path only
 - **low**: Defensive hardening opportunity: missing null check on a path where callers currently always provide non-null, unchecked return value where failure is unlikely but not impossible, marginal type safety improvement
-- **nitpick**: Stylistic preference about error handling approach, assertion ordering, or guard clause placement — does NOT block approval
+- **nitpick**: Stylistic preference about error handling approach, assertion ordering, or guard clause placement — does not trigger REQUEST_CHANGES
 
 **When in doubt between two severity levels, choose the lower one and state the uncertainty in the Problem field.**
 
@@ -205,7 +205,54 @@ Confidence definitions:
 No issues found.
 ```
 
-OR
+OR (approve with nitpicks):
+
+```
+## Review: Bug Review
+
+#### Change Summary
+<2-3 sentences: what the code does and what behavior changed>
+
+#### Guidelines Loaded
+- <path> (<source>)
+  - @<directive> -> <resolved-path> (<status>)
+[one parent line per CLAUDE.md file; indented sub-items per @ directive; or "None found."]
+
+### Verdict: APPROVE
+
+#### Evidence
+- Files reviewed: path/to/fileA.ext, path/to/fileB.ext
+- Evidence 1: path/to/fileA.ext:12 - <specific bug-risk check and why it passed>
+- Evidence 2: path/to/fileB.ext:34 - <specific bug-risk check and why it passed>
+
+#### Dimensions Evaluated
+- logic-error: OK — path/to/fileA.ext:12 conditions correct
+- off-by-one: OK — path/to/fileA.ext:20 loop bounds verified
+- null-safety: OK — path/to/fileB.ext:34 null checks present
+- race-condition: N/A — no concurrent access
+- resource-leak: N/A — no resources opened
+- error-handling: OK — path/to/fileA.ext:40 errors propagated correctly
+- security: OK — path/to/fileB.ext:15 input validated
+- type-safety: OK — path/to/fileA.ext:25 types match
+- return-value-neglect: OK — path/to/fileA.ext:30 return values checked
+- unhappy-path: OK — path/to/fileB.ext:45 error paths traced
+- async-concurrency: N/A — no async constructs
+- data-integrity: OK — path/to/fileA.ext:50 state updates consistent
+- ordering-mapping: N/A — no grouping/dedup logic
+- correctness-masking: OK — path/to/fileB.ext:60 no suppressed failures
+- regression-signal: N/A — no new passthrough tests
+
+#### Limitations
+<One sentence: what could not be verified, or "None" if full coverage was achieved>
+
+#### Nitpick 1: [Title]
+- **File**: path/to/file.ext
+- **Line(s)**: 12
+- **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking | return-value-neglect | unhappy-path | async-concurrency | regression-signal
+- **Comment**: <description of the nitpick>
+```
+
+OR (request changes):
 
 ```
 ## Review: Bug Review

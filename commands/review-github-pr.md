@@ -157,13 +157,12 @@ Parse each agent's output to extract:
 1. The verdict (APPROVE or REQUEST_CHANGES)
 2. All issues with their severity, category, and confidence. Extract the `**Confidence**` field from each issue. If the field is missing (e.g., reviewer did not include it), default to `likely`.
 3. Non-blocking items from APPROVE verdicts:
-   - `#### Nitpick N:` blocks from architecture-reviewer and code-quality-reviewer
+   - `#### Nitpick N:` blocks from bug-reviewer, architecture-reviewer, and code-quality-reviewer
      (with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`)
    - `#### Recommendation N:` blocks from test-reviewer
      (with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`)
    - Infer severity=nitpick from the header. These do not need severity/category
      fields to parse successfully.
-   - Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
    - JSON field mapping: extract `**File**:`, `**Line(s)**:`, and `**Category**:` from
      the block using the same parsing as REQUEST_CHANGES issues. Set `problem` to the
      Comment text, set `suggestion` to empty string `""` (not null — `render-report.py:139`

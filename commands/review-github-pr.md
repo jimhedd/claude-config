@@ -151,14 +151,28 @@ The 4 agents to spawn (all via `Task` tool with appropriate `subagent_type`):
 
 Each agent returns structured output with:
 - A verdict line: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
-- Zero or more issues, each with: Title, File, Line(s), Severity (high/medium/low/nitpick), Category, Problem, Suggestion
+- Zero or more issues, each with: Title, File, Line(s), Severity (high/medium/low/nitpick), Category, Confidence (certain/likely/speculative), Problem, Suggestion
 
 Parse each agent's output to extract:
 1. The verdict (APPROVE or REQUEST_CHANGES)
-2. All issues with their severity and category
+2. All issues with their severity, category, and confidence. Extract the `**Confidence**` field from each issue. If the field is missing (e.g., reviewer did not include it), default to `likely`.
+3. Non-blocking items from APPROVE verdicts:
+   - `#### Nitpick N:` blocks from architecture-reviewer and code-quality-reviewer
+     (with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`)
+   - `#### Recommendation N:` blocks from test-reviewer
+     (with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`)
+   - Infer severity=nitpick from the header. These do not need severity/category
+     fields to parse successfully.
+   - Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
+   - JSON field mapping: extract `**File**:`, `**Line(s)**:`, and `**Category**:` from
+     the block using the same parsing as REQUEST_CHANGES issues. Set `problem` to the
+     Comment text, set `suggestion` to empty string `""` (not null — `render-report.py:139`
+     rejects null values for required fields). Set `severity` to `nitpick`.
+   - Include these as nitpick-tier items in the JSON `issues[]` array.
 
 If an agent's output cannot be parsed, warn about that reviewer but continue with the others. If ALL agents fail, stop and report the error.
 
+<!-- SYNC: Guidelines cross-check — keep in sync with implement.md Phase 3.2, refine-plan.md Phase 1.2 -->
 For each reviewer, extract and cross-check the `#### Guidelines Loaded` section against
 the script's JSON output (`expected_guidelines` and `expected_directives` filtered to depth<=2):
 - **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`
@@ -187,6 +201,7 @@ reported a matching `@<directive>` sub-item under the corresponding parent path:
 - Reviewer reports @ directives not in `expected_directives`: no warning
 These are warnings only — do not trigger parse failure, retry, or verdict override.
 
+<!-- SYNC: Dimensions breadth check — keep in sync with implement.md Phase 3.2 -->
 **Dimensions breadth check** (all reviewers):
 - Extract `#### Dimensions Evaluated` from each reviewer.
 - Count: `{evaluated}` = OK + Issue count, `{total}` = expected dimensions for that reviewer.
@@ -198,6 +213,7 @@ These are warnings only — do not trigger parse failure, retry, or verdict over
 
 ### Step 6: Classify Issues into Priority Tiers
 
+<!-- SYNC: P-tier classification — keep in sync with implement.md Phase 3.2 step 3 -->
 Map each agent issue to a priority tier using these rules:
 
 **P0 — Must Fix** (correctness bugs, security, data corruption, fundamental violations):
@@ -220,6 +236,11 @@ Map each agent issue to a priority tier using these rules:
 
 **Nitpick — Optional** (subjective preferences, equally-valid alternatives):
 - Any issue with severity=nitpick from any reviewer
+
+**Confidence adjustment** (applied after severity classification):
+- If confidence=speculative: downgrade one tier (P0->P1, P1->P2, P2->Nitpick, Nitpick stays Nitpick)
+- If confidence=certain or likely: no adjustment
+- Log each downgrade: "Downgraded: {title} {from}->{to}, confidence=speculative"
 
 **Overall verdict**: `REQUEST_CHANGES` if any P0 or P1 issue exists, otherwise `APPROVE`.
 

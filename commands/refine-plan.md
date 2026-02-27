@@ -38,28 +38,36 @@ Run three specialized critic agents (correctness, dependency, and completeness) 
 
 7. **Resolve CLAUDE.md guidelines**:
 
-   **Step 7a — Root resolution**: Run:
+   Extract file paths from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{plan_files}`.
+
+   **Path normalization**: Before passing to `--files`, normalize each path in `{plan_files}` to repo-relative:
+   - Expand `~` to `$HOME` to produce an absolute path (e.g., `~/.claude/commands/foo.md` → `/Users/x/.claude/commands/foo.md`)
+   - If the path is already absolute or was just expanded: check if it starts with `{repo_root}/`. If yes, strip the `{repo_root}/` prefix. If no, log `Warning: Plan path outside repo root, skipping: <path>` and exclude it.
+   - Strip leading `./` from relative paths
+   - Result must be a repo-relative path (no leading `/`)
+
+   If `{plan_files}` is non-empty (after normalization):
+   ```bash
+   python3 ~/.claude/scripts/resolve-claude-md.py \
+     --git-dir {repo_root} \
+     --working-tree \
+     --files 'path/to/file1' 'path/to/file2' ... \
+     --depth 5
+   ```
+   Each element of `{plan_files}` is passed as a separate single-quoted argument after `--files`.
+
+   If `{plan_files}` is empty (omit `--files`):
    ```bash
    python3 ~/.claude/scripts/resolve-claude-md.py \
      --git-dir {repo_root} \
      --working-tree \
      --depth 5
    ```
-   Parse JSON output: store `{resolved_content}`, `{guidelines_loaded_section}`, `{expected_guidelines}`.
+   Log: `Warning: No parseable file list — guidelines probed from root only.`
 
-   **Step 7b — Plan-scoped directory probing**: Extract file paths from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{plan_files}`.
+   Parse JSON output: store `{resolved_content}`, `{guidelines_loaded_section}`, `{expected_guidelines}`, `{expected_directives}` (filter to depth<=2).
 
-   If `{plan_files}` is non-empty:
-   - Compute ancestor directories from those paths (same algorithm as `compute_ancestor_dirs` in `resolve-claude-md.py:82` — split each path on `/`, collect all prefix directories, always include root).
-   - For each ancestor dir, check if `{repo_root}/{dir}/CLAUDE.md` or `{repo_root}/{dir}/.claude/CLAUDE.md` exists on disk.
-   - Read any found files and append their contents to `{resolved_content}`.
-   - Add their paths to `{expected_guidelines}` and update `{guidelines_loaded_section}`.
-
-   If `{plan_files}` is empty: root-only resolution is used. Log: `Warning: No parseable file list — guidelines probed from root only.`
-
-   If the script fails: log `Warning: CLAUDE.md resolution failed — proceeding without guidelines.` and set `{resolved_content}` to empty, `{guidelines_loaded_section}` to "None found.", `{expected_guidelines}` to empty.
-
-   **Known v1 limitation**: `@` directives in non-root CLAUDE.md files discovered via plan-scoped probing will not be recursively resolved.
+   If the script fails: log `Warning: CLAUDE.md resolution failed — proceeding without guidelines.` and set `{resolved_content}` to empty, `{guidelines_loaded_section}` to "None found.", `{expected_guidelines}` to empty, `{expected_directives}` to empty.
 
 ## Phase 1: Critic Loop
 
@@ -153,6 +161,7 @@ For each critic, parse:
 - `#### Guidelines Loaded` section
 - `#### Dimensions Evaluated` section
 
+<!-- SYNC: Guidelines cross-check — keep in sync with implement.md Phase 3.2, review-github-pr.md Step 5 -->
 **Guidelines cross-check** (mirrors `implement.md` Phase 3.2 step 1):
 - Extract guideline entries from each critic's `#### Guidelines Loaded` section.
 - Compare against `{expected_guidelines}`.
@@ -162,6 +171,17 @@ For each critic, parse:
   - Unexpected paths reported: `Warning: <critic-name> reported unexpected guideline path: <path>`
   - Expected paths missing: `Warning: <critic-name> did not report expected guideline: <path>`
 - These are warnings only — do not trigger parse failure or retry.
+
+For each entry in `expected_directives` (depth<=2 from script output), check if the critic
+reported a matching `@<directive>` sub-item under the corresponding parent path:
+- Directive not reported at all: log warning
+  "Warning: <critic-name> did not report expected @ directive: @<directive> in <parent-path>"
+- Directive reported with any status (`resolved`, `truncated`, `not-found`,
+  `cycle-skipped`): no warning (critic acknowledged the directive)
+- Directive reported with status `budget-dropped`: log informational
+  "Info: <critic-name> budget-dropped @ directive: @<directive> in <parent-path>"
+- Critic reports @ directives not in `expected_directives`: no warning
+These are warnings only — do not trigger parse failure or retry.
 
 **Dimensions-evaluated parsing**: Extract `#### Dimensions Evaluated` from each critic. For each critic, validate:
 1. Every expected dimension appears exactly once (correctness: 12, dependency: 3, completeness: 11). Missing dimension → warning.

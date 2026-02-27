@@ -280,6 +280,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
    - Exactly one verdict: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`
    - All issues from `REQUEST_CHANGES` verdicts, each tagged with **source reviewer identity** (bug-reviewer, architecture-reviewer, test-reviewer, code-quality-reviewer), title, file, lines, severity, confidence, category, problem, suggestion. Extract the `**Confidence**` field from each issue. If the field is missing (e.g., reviewer did not include it), default to `likely`.
    - Non-blocking blocks from `APPROVE` verdicts: `#### Nitpick N:` (architecture-reviewer, code-quality-reviewer) and `#### Recommendation N:` (test-reviewer), both with `**Comment**:` instead of `**Problem**:`/`**Suggestion**:`. Infer severity=nitpick from the header and include in classification. These do not need severity/category fields to parse successfully. Note: bug-reviewer does not emit nitpick blocks in APPROVE verdicts.
+   <!-- SYNC: Guidelines cross-check — keep in sync with review-github-pr.md Step 5, refine-plan.md Phase 1.2 -->
    - `#### Guidelines Loaded` section: extract guideline entries and directive sub-items separately.
      - **Guideline entries**: top-level bullets only — lines matching `- <path> (<source>)`
        with no leading indentation before the `-`. These are CLAUDE.md file paths.
@@ -313,6 +314,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
      - If all reviewers matched expectations: `  Reviewers: <N>/<active> matched` (where N = number of reviewers with parseable output, active = len({active_reviewers}) this iteration)
      - For any warnings: emit one `  ⚠ <reviewer-name>: <warning summary>` line per warning
    - If `pr_added_guidelines` is non-empty, append: `  PR-added (skipped): <path>, ...`
+   <!-- SYNC: Dimensions breadth check — keep in sync with review-github-pr.md Step 5 -->
    **Dimensions breadth check** (all reviewers):
    - Extract `#### Dimensions Evaluated` from each reviewer.
    - Count: `{evaluated}` = OK + Issue count, `{total}` = expected dimensions for that reviewer.
@@ -354,6 +356,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
      consecutive failures." The minimum thresholds above still apply after
      dropping — if dropping a reviewer would violate a threshold, stop instead
      of dropping.
+<!-- SYNC: P-tier classification — keep in sync with review-github-pr.md Step 6 -->
 3. Classify every successfully parsed issue into P0/P1/P2/nitpick. Classification rules are **scoped by source reviewer** — the reviewer that produced the issue determines which rule applies:
    - **P0**: bug-reviewer severity=high (any category), bug-reviewer severity=medium AND category in {security, data-integrity, race-condition}, architecture-reviewer severity=high
    - **P1**: bug-reviewer severity=medium (remaining), bug-reviewer severity=low AND category in {security, data-integrity}, architecture-reviewer severity=medium, test-reviewer severity=high, code-quality-reviewer severity=high

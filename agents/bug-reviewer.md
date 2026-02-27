@@ -116,7 +116,7 @@ Evaluate the changed code for:
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 120 lines.
+- Keep output compact and high signal: target <= 135 lines.
 - For APPROVE: provide exactly 2-3 evidence bullets.
 - For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
 - Do not include long narrative background; keep each issue/problem statement concise and concrete.
@@ -151,10 +151,11 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
-- Keep the response concise (target <= 120 lines).
+- Keep the response concise (target <= 135 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
+- Include a `#### Dimensions Evaluated` section. Every dimension from your Review Focus must appear exactly once with status `OK`, `Issue`, or `N/A`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -180,6 +181,23 @@ Confidence definitions:
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific bug-risk check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific bug-risk check and why it passed>
+
+#### Dimensions Evaluated
+- logic-error: OK — path/to/fileA.ext:12 conditions correct
+- off-by-one: OK — path/to/fileA.ext:20 loop bounds verified
+- null-safety: OK — path/to/fileB.ext:34 null checks present
+- race-condition: N/A — no concurrent access
+- resource-leak: N/A — no resources opened
+- error-handling: OK — path/to/fileA.ext:40 errors propagated correctly
+- security: OK — path/to/fileB.ext:15 input validated
+- type-safety: OK — path/to/fileA.ext:25 types match
+- return-value-neglect: OK — path/to/fileA.ext:30 return values checked
+- unhappy-path: OK — path/to/fileB.ext:45 error paths traced
+- async-concurrency: N/A — no async constructs
+- data-integrity: OK — path/to/fileA.ext:50 state updates consistent
+- ordering-mapping: N/A — no grouping/dedup logic
+- correctness-masking: OK — path/to/fileB.ext:60 no suppressed failures
+- regression-signal: N/A — no new passthrough tests
 
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
@@ -208,9 +226,26 @@ OR
 - **Diff Line(s)**: path/to/file.ext:45
 - **Severity**: high | medium | low
 - **Confidence**: certain | likely | speculative
-- **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking | return-value-neglect | unhappy-path | async-concurrency
+- **Category**: logic-error | off-by-one | null-safety | race-condition | resource-leak | error-handling | security | type-safety | data-integrity | ordering-mapping | correctness-masking | return-value-neglect | unhappy-path | async-concurrency | regression-signal
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific fix>
+
+#### Dimensions Evaluated
+- logic-error: Issue — see Issue N
+- off-by-one: OK — path/to/fileA.ext:20 loop bounds verified
+- null-safety: Issue — see Issue N
+- race-condition: N/A — no concurrent access
+- resource-leak: N/A — no resources opened
+- error-handling: OK — path/to/fileA.ext:40 errors propagated correctly
+- security: OK — path/to/fileB.ext:15 input validated
+- type-safety: OK — path/to/fileA.ext:25 types match
+- return-value-neglect: OK — path/to/fileA.ext:30 return values checked
+- unhappy-path: OK — path/to/fileB.ext:45 error paths traced
+- async-concurrency: N/A — no async constructs
+- data-integrity: OK — path/to/fileA.ext:50 state updates consistent
+- ordering-mapping: N/A — no grouping/dedup logic
+- correctness-masking: OK — path/to/fileB.ext:60 no suppressed failures
+- regression-signal: N/A — no new passthrough tests
 ```
 
 List each issue as a separate numbered entry. Be specific — describe the exact scenario that triggers the bug and the exact fix.

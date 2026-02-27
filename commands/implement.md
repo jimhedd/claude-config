@@ -313,6 +313,19 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
      - If all reviewers matched expectations: `  Reviewers: <N>/<active> matched` (where N = number of reviewers with parseable output, active = len({active_reviewers}) this iteration)
      - For any warnings: emit one `  ⚠ <reviewer-name>: <warning summary>` line per warning
    - If `pr_added_guidelines` is non-empty, append: `  PR-added (skipped): <path>, ...`
+   **Dimensions breadth check** (all reviewers):
+   - Extract `#### Dimensions Evaluated` from each reviewer.
+   - Count: `{evaluated}` = OK + Issue count, `{total}` = expected dimensions for that reviewer.
+   - Expected counts: bug=15, architecture=11, test=10, code-quality=8.
+   - If `{evaluated}/{total}` < 0.50: log warning.
+   - If section missing: log warning.
+   - Warnings are informational only — no retry, no verdict override.
+
+   Emit breadth warnings in the compact CLI summary alongside existing guidelines warnings:
+   ```
+   Breadth: <N>/<active> reviewers evaluated >=50% dimensions
+     ⚠ <reviewer-name>: evaluated only {evaluated}/{total} dimensions
+   ```
 2. **Parse failure handling**:
    - If a reviewer's output is unparseable, rerun that reviewer once.
    - If still unparseable on retry:

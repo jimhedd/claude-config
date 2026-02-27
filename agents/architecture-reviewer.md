@@ -105,7 +105,7 @@ Evaluate the changed code for:
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 160 lines.
+- Keep output compact and high signal: target <= 175 lines.
 - For APPROVE: provide exactly 2-3 evidence bullets (plus required caller-impact section when applicable).
 - For REQUEST_CHANGES: report at most 6 highest-impact issues; merge duplicates.
 - Keep each issue/problem statement concise and avoid long architectural essays.
@@ -144,11 +144,12 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
-- Keep the response concise (target <= 160 lines).
+- Keep the response concise (target <= 175 lines).
 - If contract shifts are present, include `#### Caller Impact` and follow the required fields below.
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
+- Include a `#### Dimensions Evaluated` section. Every dimension from your Review Focus must appear exactly once with status `OK`, `Issue`, or `N/A`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -175,6 +176,19 @@ Confidence definitions:
 - Evidence 1: path/to/fileA.ext:12 - <specific architecture check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific architecture check and why it passed>
 
+#### Dimensions Evaluated
+- design-pattern: OK — path/to/fileA.ext:12 appropriate pattern used
+- separation-of-concerns: OK — path/to/fileA.ext:20 single responsibility maintained
+- consistency: OK — path/to/fileB.ext:5 follows existing patterns
+- coupling: OK — path/to/fileA.ext:30 dependencies appropriate
+- api-design: OK — path/to/fileB.ext:34 contracts clear
+- caller-impact: N/A — no contract changes
+- abstraction: OK — path/to/fileA.ext:40 right level of abstraction
+- error-architecture: OK — path/to/fileB.ext:50 consistent error handling
+- idempotency: N/A — no retryable operations
+- resource-representation: N/A — no new data structures
+- concurrency-caching: N/A — no synchronization or caching changes
+
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
 
@@ -200,6 +214,19 @@ OR (approve with nitpicks):
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific architecture check and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific architecture check and why it passed>
+
+#### Dimensions Evaluated
+- design-pattern: OK — path/to/fileA.ext:12 appropriate pattern used
+- separation-of-concerns: OK — path/to/fileA.ext:20 single responsibility maintained
+- consistency: OK — path/to/fileB.ext:5 follows existing patterns
+- coupling: OK — path/to/fileA.ext:30 dependencies appropriate
+- api-design: OK — path/to/fileB.ext:34 contracts clear
+- caller-impact: OK — path/to/caller.ext:56 callers compatible
+- abstraction: OK — path/to/fileA.ext:40 right level of abstraction
+- error-architecture: OK — path/to/fileB.ext:50 consistent error handling
+- idempotency: N/A — no retryable operations
+- resource-representation: N/A — no new data structures
+- concurrency-caching: N/A — no synchronization or caching changes
 
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
@@ -239,6 +266,19 @@ OR (request changes):
 - **Category**: design-pattern | separation-of-concerns | consistency | coupling | api-design | caller-impact | abstraction | error-architecture | idempotency | resource-representation | concurrency-caching
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific, actionable fix>
+
+#### Dimensions Evaluated
+- design-pattern: Issue — see Issue N
+- separation-of-concerns: OK — path/to/fileA.ext:20 single responsibility maintained
+- consistency: OK — path/to/fileB.ext:5 follows existing patterns
+- coupling: Issue — see Issue N
+- api-design: OK — path/to/fileB.ext:34 contracts clear
+- caller-impact: N/A — no contract changes
+- abstraction: OK — path/to/fileA.ext:40 right level of abstraction
+- error-architecture: OK — path/to/fileB.ext:50 consistent error handling
+- idempotency: N/A — no retryable operations
+- resource-representation: N/A — no new data structures
+- concurrency-caching: N/A — no synchronization or caching changes
 ```
 
 List each issue as a separate numbered entry. Be specific and actionable — vague feedback is not useful.

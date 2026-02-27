@@ -88,10 +88,11 @@ Verify the plan's claims about:
 6. For each claimed behavior, Read the relevant code and trace the logic
 7. For each claimed pattern or convention, verify it exists in the codebase (cross-reference with CLAUDE.md guidelines)
 8. Compile all inaccuracies with corrections
+9. Compile the Dimensions Evaluated section — every dimension from Review Focus must appear exactly once
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 200 lines.
+- Keep output compact and high signal: target <= 215 lines.
 - For ACCURATE: provide at least 8 evidence bullets showing claims you verified.
 - For HAS_ERRORS: report at most 12 highest-impact issues; merge duplicates.
 - Do not include long narrative background; keep each issue concise and concrete.
@@ -103,6 +104,7 @@ Verify the plan's claims about:
 - Never return ACCURATE without concrete evidence of claims you checked.
 - Must verify at least 8 distinct factual claims with file:line evidence before returning ACCURATE. If the plan has fewer than 8 verifiable claims, state why in the Evidence section.
 - Claims that can't be verified through static analysis (performance, runtime behavior, concurrency guarantees) must be flagged as issues with severity=low and a note that manual/runtime verification is needed. These DO trigger HAS_ERRORS.
+- Must evaluate at least 8 dimensions as OK or Issue (not N/A) in the Dimensions Evaluated section. Each OK/Issue line must cite at least one `path:line`.
 
 ### Severity Guide
 
@@ -118,10 +120,11 @@ Hard requirements:
 - The first non-empty line must be exactly `## Critique: Plan Correctness`.
 - Include exactly one verdict header: `### Verdict: ACCURATE` or `### Verdict: HAS_ERRORS`.
 - Every evidence item must include at least one `path:line` anchor or file path reference.
-- Keep the response concise (target <= 200 lines).
+- Keep the response concise (target <= 215 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Plan Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
+- Include a `#### Dimensions Evaluated` section. Every dimension from your Review Focus must appear exactly once with status `OK`, `Issue`, or `N/A`.
 
 ```
 ## Critique: Plan Correctness
@@ -141,6 +144,20 @@ Hard requirements:
 - Evidence 1: path/to/fileA.ext:12 - <claim verified and how>
 - Evidence 2: path/to/fileB.ext:34 - <claim verified and how>
 - Evidence 3: path/to/fileC.ext:56 - <claim verified and how>
+
+#### Dimensions Evaluated
+- file-paths: OK — path/to/fileA.ext:1 verified exists
+- symbol-names: OK — path/to/fileA.ext:12 function name matches
+- api-signatures: OK — path/to/fileB.ext:34 signature matches
+- import-paths: OK — path/to/fileA.ext:5 import resolves
+- dependencies: N/A — no package manifest claims
+- described-behavior: OK — path/to/fileC.ext:56 behavior matches
+- referenced-patterns: OK — path/to/fileA.ext:20 pattern exists
+- configuration: N/A — no config claims
+- type-compatibility: OK — path/to/fileB.ext:40 types match
+- version-deprecation: N/A — no version claims
+- code-snippets: OK — path/to/fileA.ext:15 snippet matches source
+- internal-consistency: OK — file list matches changes sections
 
 #### Limitations
 List each unverifiable claim on its own line, or "None" if full coverage was achieved.
@@ -174,6 +191,20 @@ OR
 - **Actual**: <what the codebase actually shows, with path:line reference>
 - **Severity**: high | medium | low
 - **Correction**: <specific fix to the plan>
+
+#### Dimensions Evaluated
+- file-paths: Issue — see Issue N
+- symbol-names: OK — path/to/fileA.ext:12 function name matches
+- api-signatures: OK — path/to/fileB.ext:34 signature matches
+- import-paths: OK — path/to/fileA.ext:5 import resolves
+- dependencies: N/A — no package manifest claims
+- described-behavior: Issue — see Issue N
+- referenced-patterns: OK — path/to/fileA.ext:20 pattern exists
+- configuration: N/A — no config claims
+- type-compatibility: OK — path/to/fileB.ext:40 types match
+- version-deprecation: N/A — no version claims
+- code-snippets: OK — path/to/fileA.ext:15 snippet matches source
+- internal-consistency: OK — file list matches changes sections
 
 #### Limitations
 List each unverifiable claim on its own line, or "None" if full coverage was achieved.

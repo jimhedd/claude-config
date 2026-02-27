@@ -187,6 +187,15 @@ reported a matching `@<directive>` sub-item under the corresponding parent path:
 - Reviewer reports @ directives not in `expected_directives`: no warning
 These are warnings only — do not trigger parse failure, retry, or verdict override.
 
+**Dimensions breadth check** (all reviewers):
+- Extract `#### Dimensions Evaluated` from each reviewer.
+- Count: `{evaluated}` = OK + Issue count, `{total}` = expected dimensions for that reviewer.
+- Expected counts: bug=15, architecture=11, test=10, code-quality=8.
+- If `{evaluated}/{total}` < 0.50: log warning.
+- If section missing: log warning.
+- Warnings are informational only — no retry, no verdict override.
+- Emit breadth warnings in the JSON `guidelines.warnings[]` array (same array used for existing guidelines warnings). The CLI summary is intentionally minimal (2-line verdict) and should not include breadth warnings — they surface only in the HTML report via the JSON.
+
 ### Step 6: Classify Issues into Priority Tiers
 
 Map each agent issue to a priority tier using these rules:

@@ -109,7 +109,7 @@ Evaluate the changed code for:
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 140 lines.
+- Keep output compact and high signal: target <= 155 lines.
 - For APPROVE: provide exactly 2-3 evidence bullets.
 - For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
 - Keep wording concrete and brief; avoid long narrative commentary.
@@ -141,10 +141,11 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
-- Keep the response concise (target <= 140 lines).
+- Keep the response concise (target <= 155 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
+- Include a `#### Dimensions Evaluated` section. Every dimension from your Review Focus must appear exactly once with status `OK`, `Issue`, or `N/A`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -174,6 +175,16 @@ Confidence definitions:
 - Evidence 1: path/to/fileA.ext:12 - <specific check performed and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific check performed and why it passed>
 
+#### Dimensions Evaluated
+- readability: OK — path/to/fileA.ext:12 clear and easy to follow
+- naming: OK — path/to/fileA.ext:20 descriptive names used
+- duplication: OK — no duplicated logic found
+- style: OK — path/to/fileB.ext:5 consistent with project style
+- maintainability: OK — path/to/fileA.ext:30 responsibilities cleanly separated
+- complexity: OK — path/to/fileB.ext:34 shallow nesting, focused functions
+- documentation: OK — path/to/fileA.ext:1 public APIs documented
+- language-idioms: OK — path/to/fileB.ext:15 idiomatic constructs used
+
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
 
@@ -202,6 +213,16 @@ OR (approve with nitpicks):
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific check performed and why it passed>
 - Evidence 2: path/to/fileB.ext:34 - <specific check performed and why it passed>
+
+#### Dimensions Evaluated
+- readability: OK — path/to/fileA.ext:12 clear and easy to follow
+- naming: OK — path/to/fileA.ext:20 descriptive names used
+- duplication: OK — no duplicated logic found
+- style: OK — path/to/fileB.ext:5 consistent with project style
+- maintainability: OK — path/to/fileA.ext:30 responsibilities cleanly separated
+- complexity: OK — path/to/fileB.ext:34 shallow nesting, focused functions
+- documentation: OK — path/to/fileA.ext:1 public APIs documented
+- language-idioms: OK — path/to/fileB.ext:15 idiomatic constructs used
 
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
@@ -240,6 +261,16 @@ OR (request changes):
 - **Category**: readability | naming | duplication | style | maintainability | complexity | documentation | idiomatic-construct | stdlib-usage | error-handling-idiom | type-system | concurrency-pattern | style-guide-compliance
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific, actionable fix>
+
+#### Dimensions Evaluated
+- readability: Issue — see Issue N
+- naming: OK — path/to/fileA.ext:20 descriptive names used
+- duplication: Issue — see Issue N
+- style: OK — path/to/fileB.ext:5 consistent with project style
+- maintainability: OK — path/to/fileA.ext:30 responsibilities cleanly separated
+- complexity: OK — path/to/fileB.ext:34 shallow nesting, focused functions
+- documentation: OK — path/to/fileA.ext:1 public APIs documented
+- language-idioms: OK — path/to/fileB.ext:15 idiomatic constructs used
 ```
 
 List each issue as a separate numbered entry. Be specific and actionable — vague feedback is not useful.

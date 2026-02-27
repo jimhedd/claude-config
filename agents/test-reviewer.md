@@ -112,7 +112,7 @@ Evaluate the changed code for:
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 140 lines.
+- Keep output compact and high signal: target <= 155 lines.
 - For APPROVE: provide exactly 2-3 evidence bullets.
 - For REQUEST_CHANGES: report at most 5 highest-impact issues; merge duplicates.
 - Keep recommendations short and actionable; avoid long narrative justification.
@@ -154,10 +154,11 @@ Hard requirements:
 - Include exactly one verdict header: `### Verdict: APPROVE` or `### Verdict: REQUEST_CHANGES`.
 - In `Files reviewed:` and all `**File**:` fields, use repo-relative paths (for example `src/foo/bar.kt`), not bare filenames like `bar.kt`.
 - Every evidence item must include at least one `path:line` anchor.
-- Keep the response concise (target <= 140 lines).
+- Keep the response concise (target <= 155 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Change Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
+- Include a `#### Dimensions Evaluated` section. Every dimension from your Review Focus must appear exactly once with status `OK`, `Issue`, or `N/A`.
 - For `REQUEST_CHANGES`, every `#### Issue N:` block must include all of:
   - `**File**`, `**Line(s)**`, `**Diff Line(s)**`, `**Severity**`, `**Confidence**`, `**Category**`, `**Problem**`, `**Suggestion**`.
 
@@ -184,6 +185,18 @@ Confidence definitions:
 - Evidence 1: path/to/fileA.ext:12 - <specific risk/coverage check and why it passed>
 - Evidence 2: path/to/test_file.ext:34 - `<test name>` covers <behavior/edge case>
 
+#### Dimensions Evaluated
+- missing-test: OK — path/to/test_file.ext:34 tests cover behavior changes
+- contract-shift: N/A — no contract shifts
+- ordering-mapping: N/A — no grouping/dedup logic
+- edge-case: OK — path/to/test_file.ext:50 boundary cases covered
+- test-quality: OK — path/to/test_file.ext:34 meaningful assertions
+- assertions: OK — path/to/test_file.ext:40 specific value checks
+- mutation-survival: OK — path/to/test_file.ext:34 would catch off-by-one
+- regression-integrity: OK — no diluted assertions
+- rename-consistency: N/A — no renames
+- test-structure: OK — path/to/test_file.ext:10 arrange-act-assert pattern
+
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
 
@@ -209,6 +222,18 @@ OR
 - Files reviewed: path/to/fileA.ext, path/to/fileB.ext, path/to/test_file.ext
 - Evidence 1: path/to/fileA.ext:12 - <specific risk/coverage check and why it passed>
 - Evidence 2: path/to/test_file.ext:34 - `<test name>` covers <behavior/edge case>
+
+#### Dimensions Evaluated
+- missing-test: OK — path/to/test_file.ext:34 tests cover behavior changes
+- contract-shift: N/A — no contract shifts
+- ordering-mapping: N/A — no grouping/dedup logic
+- edge-case: OK — path/to/test_file.ext:50 boundary cases covered
+- test-quality: OK — path/to/test_file.ext:34 meaningful assertions
+- assertions: OK — path/to/test_file.ext:40 specific value checks
+- mutation-survival: OK — path/to/test_file.ext:34 would catch off-by-one
+- regression-integrity: OK — no diluted assertions
+- rename-consistency: N/A — no renames
+- test-structure: OK — path/to/test_file.ext:10 arrange-act-assert pattern
 
 #### Limitations
 <One sentence: what could not be verified, or "None" if full coverage was achieved>
@@ -246,6 +271,18 @@ OR
 - **Category**: missing-test | edge-case | test-quality | mutation-survival | assertions | regression-integrity | test-structure | rename-consistency | contract-shift | ordering-mapping
 - **Problem**: <description of the issue>
 - **Suggestion**: <specific test to add or improve>
+
+#### Dimensions Evaluated
+- missing-test: Issue — see Issue N
+- contract-shift: N/A — no contract shifts
+- ordering-mapping: N/A — no grouping/dedup logic
+- edge-case: Issue — see Issue N
+- test-quality: OK — path/to/test_file.ext:34 meaningful assertions
+- assertions: OK — path/to/test_file.ext:40 specific value checks
+- mutation-survival: OK — path/to/test_file.ext:34 would catch off-by-one
+- regression-integrity: OK — no diluted assertions
+- rename-consistency: N/A — no renames
+- test-structure: OK — path/to/test_file.ext:10 arrange-act-assert pattern
 ```
 
 List each issue as a separate numbered entry. Be specific — describe exactly what test should be written, not just "add tests."

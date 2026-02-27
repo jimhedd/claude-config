@@ -1,6 +1,6 @@
 ---
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
-description: "Refine an implementation plan using parallel correctness and completeness critics"
+description: "Refine an implementation plan using parallel correctness, dependency, and completeness critics"
 requires-argument: false
 argument-hint: "plan-name.md [--new-file] [--single]"
 argument-description: "Optional plan file. --single for 1 pass (default is 2). If omitted, choose from recent files in ~/.claude/plans"
@@ -8,7 +8,7 @@ argument-description: "Optional plan file. --single for 1 pass (default is 2). I
 
 # Refine Plan with Parallel Critics
 
-Run two specialized critic agents (correctness and completeness) against a draft implementation plan, then revise the plan based on structured findings.
+Run three specialized critic agents (correctness, dependency, and completeness) against a draft implementation plan, then revise the plan based on structured findings.
 
 ## Phase 0: Parse Arguments, Resolve Plan, and Load Guidelines
 
@@ -73,11 +73,11 @@ Repeat while `{pass} < {max_passes}`:
 
 Increment `{pass}`.
 
-### 1.1 Launch both critics in parallel
+### 1.1 Launch all three critics in parallel
 
-Launch both critic agents as parallel Task calls in a single message (mirrors the parallel reviewer pattern from `implement.md` Phase 3.1). Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn.
+Launch all three critic agents as parallel Task calls in a single message (mirrors the parallel reviewer pattern from `implement.md` Phase 3.1). Do NOT use `run_in_background` — foreground parallel calls already run concurrently and return all results in one turn.
 
-CRITICAL: You MUST emit Task calls for BOTH critics in your NEXT single message — not 1 then the other, not split across turns. Pre-compute both prompt strings before emitting any Task call.
+CRITICAL: You MUST emit Task calls for ALL THREE critics in your NEXT single message — not 1 then the others, not split across turns. Pre-compute all three prompt strings before emitting any Task call.
 
 Each critic prompt must include:
 - The full plan: `{plan_contents}`
@@ -102,7 +102,7 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
 
 On pass 2, include additional context based on pass 1 results. These two cases are mutually exclusive:
 
-**Case A — Pass 1 was clean (both ACCURATE + COMPLETE)**: Prepend the Adversarial Challenge prompt to each critic. Do NOT include Prior Iteration Context (there are no prior issues).
+**Case A — Pass 1 was clean (all three verdicts clean: ACCURATE + COMPLETE + COMPLETE)**: Prepend the Adversarial Challenge prompt to each critic. Do NOT include Prior Iteration Context (there are no prior issues).
 
 ```
 Adversarial Challenge:
@@ -115,7 +115,7 @@ Specifically:
 - Verify edge cases in less-obvious code paths (error handlers, fallback logic, cleanup).
 - Examine whether the plan's changes interact with each other in ways that create new issues.
 - If you still find nothing after thorough investigation, return a clean verdict — but your
-  evidence minimums are raised: correctness must verify ≥10 claims, completeness must trace ≥7 callers.
+  evidence minimums are raised: correctness must verify ≥10 claims, dependency must trace ≥7 symbols, completeness must evaluate ≥8 dimensions.
 ```
 
 **Case B — Pass 1 had findings**: Include the standard Prior Iteration Context block. Do NOT include the Adversarial Challenge prompt.
@@ -137,19 +137,21 @@ Focus on:
 3. NOT re-raising OPEN items unless they have worsened
 ```
 
-The 2 critics to spawn (both via `Task` tool):
+The 3 critics to spawn (all via `Task` tool):
 
 | Task | subagent_type | Focus |
 |---|---|---|
 | Correctness Critic | `plan-correctness-critic` | Factual claims: file paths, function names, API signatures, behaviors |
-| Completeness Critic | `plan-completeness-critic` | Coverage gaps: callers, error handling, tests, conventions, sequencing |
+| Dependency Critic | `plan-dependency-critic` | Structural gaps: callers, imports, sequencing |
+| Completeness Critic | `plan-completeness-critic` | Non-functional gaps: error handling, tests, config, security, etc. |
 
 ### 1.2 Parse outputs and cross-check guidelines
 
 For each critic, parse:
-- Verdict: `### Verdict: ACCURATE` or `### Verdict: HAS_ERRORS` (correctness), `### Verdict: COMPLETE` or `### Verdict: HAS_GAPS` (completeness)
+- Verdict: `### Verdict: ACCURATE` or `### Verdict: HAS_ERRORS` (correctness), `### Verdict: COMPLETE` or `### Verdict: HAS_GAPS` (dependency and completeness — disambiguate by `## Critique:` heading: `## Critique: Plan Dependencies` vs `## Critique: Plan Completeness`)
 - Issues/gaps from the structured output
 - `#### Guidelines Loaded` section
+- `#### Dimensions Evaluated` section
 
 **Guidelines cross-check** (mirrors `implement.md` Phase 3.2 step 1):
 - Extract guideline entries from each critic's `#### Guidelines Loaded` section.
@@ -161,11 +163,19 @@ For each critic, parse:
   - Expected paths missing: `Warning: <critic-name> did not report expected guideline: <path>`
 - These are warnings only — do not trigger parse failure or retry.
 
+**Dimensions-evaluated parsing**: Extract `#### Dimensions Evaluated` from each critic. For each critic, validate:
+1. Every expected dimension appears exactly once (correctness: 12, dependency: 3, completeness: 11). Missing dimension → warning.
+2. No duplicate dimension slugs. Duplicate → warning.
+3. No unknown dimension slugs (not in the critic's expected set). Unknown → warning.
+4. Every status is one of `OK`, `Gap`/`Issue` (per agent convention — correctness uses `Issue`; dependency and completeness use `Gap`), or `N/A`. Invalid status → warning.
+All are warnings only — do not trigger parse failure or retry.
+
 **Parse failure handling**:
 - If a critic's output is unparseable, rerun that critic once.
 - If still unparseable on retry: log `Warning: <critic-name> produced unparseable output after retry.`
-- If both critics are unparseable after retry: stop with error.
-- If one is unparseable: warn and proceed with the other.
+- If all three critics are unparseable after retry: stop with error.
+- 2 unparseable → warn, proceed with 1.
+- 1 unparseable → warn, proceed with 2.
 
 ### 1.3 Classify findings
 
@@ -177,16 +187,16 @@ Classify each finding:
 Deduplicate cross-critic findings targeting the same file/section **or the same claim topic**. If a correctness issue and a completeness gap both address the same concern (e.g., both flag a performance claim), merge them into a single fix item.
 
 **Evidence depth validation** (runs on every pass, not just clean verdicts):
-- Parse `{N}` (claims verified) from the correctness critic's `#### Evidence` section and `{M}` (symbols traced) from the completeness critic's `#### Evidence` section.
-- Standard minimums: correctness ≥8 claims, completeness ≥5 callers.
-- Adversarial minimums (when the adversarial challenge prompt was active for this pass): correctness ≥10 claims, completeness ≥7 callers.
+- Parse `{N}` (claims verified) from correctness, `{K}` (symbols traced) from dependency, and `{D}` (dimensions evaluated as OK or Gap) from completeness.
+- Standard minimums: correctness ≥8 claims, dependency ≥5 symbols, completeness ≥6 dimensions evaluated.
+- Adversarial minimums (when the adversarial challenge prompt was active for this pass): correctness ≥10 claims, dependency ≥7 symbols, completeness ≥8 dimensions evaluated.
 - If below threshold: log warning, re-run that critic once with explicit instruction to verify more claims / trace more symbols.
 - Evidence-depth re-run and parse-failure retry (from Phase 1.2) share a single-retry budget per critic — max 1 total retry per critic regardless of reason.
 - If a critic's retry budget is already spent and evidence minimums are still not met, log a warning (e.g., `Warning: <critic-name> evidence depth below threshold after retry budget exhausted`) and proceed as if evidence minimums were met.
 
 **Pass outcome routing**:
-1. If both verdicts are clean on pass 1 (2-pass mode): do NOT exit early. Continue to pass 2 with the adversarial challenge prompt (see Phase 1.1 Case A).
-2. If both verdicts are clean on the final pass (pass 2, or pass 1 in `--single` mode): no findings to revise — proceed to Phase 1.5 (post-loop gate).
+1. If all three verdicts are clean on pass 1 (2-pass mode): do NOT exit early. Continue to pass 2 with the adversarial challenge prompt (see Phase 1.1 Case A).
+2. If all three verdicts are clean on the final pass (pass 2, or pass 1 in `--single` mode): no findings to revise — proceed to Phase 1.5 (post-loop gate).
 3. If verdicts have findings: proceed to Phase 1.4 (revision) as normal.
 
 ### 1.4 Revise the plan
@@ -197,7 +207,8 @@ For each finding, prioritized Must-fix first, then Should-fix, then Nice-to-fix:
 1. Read the relevant code in the codebase (using Read, Grep, Glob as needed)
 2. Update the plan section to fix the issue:
    - **Correctness issues**: Fix factual claims — correct file paths, function names, signatures, behaviors
-   - **Completeness gaps**: Add missing steps, files, error handling, tests, imports, configuration
+   - **Dependency gaps**: Add missing callers, fix imports/exports, correct change sequencing
+   - **Completeness gaps**: Add missing steps, error handling, tests, configuration, security, observability
 3. Preserve existing plan structure — do not reorganize sections unnecessarily
 
 After all fixes, if the plan does not already contain a `## Refinement Log` section, append one. Then append a `### Pass {pass}` subsection under it:
@@ -208,6 +219,7 @@ After all fixes, if the plan does not already contain a `## Refinement Log` sect
 ### Pass {pass} — {date}
 
 **Correctness**: {verdict} ({count} issues found, {count} fixed)
+**Dependency**: {verdict} ({count} gaps found, {count} addressed)
 **Completeness**: {verdict} ({count} gaps found, {count} addressed)
 
 Changes:
@@ -245,16 +257,18 @@ Print a summary:
 Plan refinement complete.
   Iterations: {pass}
   Correctness: {verdict} ({issues_found} issues found, {issues_fixed} fixed)
+  Dependency: {verdict} ({gaps_found} gaps found, {gaps_addressed} addressed)
   Completeness: {verdict} ({gaps_found} gaps found, {gaps_addressed} addressed)
   Output: {output_path}
 ```
 
-If both verdicts were clean on all passes:
+If all three verdicts were clean on all passes:
 ```
 Plan refinement complete.
   Iterations: {pass}
   Correctness: ACCURATE (0 issues, {N} claims verified across {pass} passes)
-  Completeness: COMPLETE (0 gaps, {M} symbols traced across {pass} passes)
+  Dependency: COMPLETE (0 gaps, {K} symbols traced across {pass} passes)
+  Completeness: COMPLETE (0 gaps, {D} dimensions evaluated across {pass} passes)
   Output: {output_path} (unchanged)
 ```
 
@@ -263,8 +277,9 @@ Plan refinement complete.
 | Case | Action |
 |---|---|
 | Plan file missing/empty | Stop with error |
-| Both critics unparseable | Stop with error |
-| One critic unparseable | Warn, proceed with other |
+| All 3 critics unparseable | Stop with error |
+| 2 critics unparseable | Warn, proceed with 1 |
+| 1 critic unparseable | Warn, proceed with 2 |
 | Not in git repo | Warn, critics use filesystem only |
 | Plan has no verifiable claims | Correctness critic may return HAS_ERRORS with low-severity unverifiable-claim issues — orchestrator treats these as Nice-to-fix; if all findings are unverifiable-claim issues only, log them in the refinement log but do not block the plan |
 | CLAUDE.md resolution fails | Warn, proceed without guidelines |
@@ -274,9 +289,9 @@ Plan refinement complete.
 
 ## Important Rules
 
-- Always launch BOTH critics in parallel in a single message.
-- The orchestrator revises the plan directly — do not spawn a third agent.
+- Always launch ALL THREE critics in parallel in a single message.
+- The orchestrator revises the plan directly — do not spawn a separate revision agent.
 - Overwrite the plan file by default (plans are in git, `git diff` shows before/after). Use `--new-file` for safety.
 - Default 2 iterations; use `--single` for 1 pass.
 - Preserve the plan's existing structure when revising.
-- Use distinct verdict names: `ACCURATE`/`HAS_ERRORS` (correctness) and `COMPLETE`/`HAS_GAPS` (completeness) — these are different from reviewer `APPROVE`/`REQUEST_CHANGES`.
+- Use distinct verdict names: `ACCURATE`/`HAS_ERRORS` (correctness) and `COMPLETE`/`HAS_GAPS` (dependency and completeness) — disambiguate by `## Critique:` heading. These are different from reviewer `APPROVE`/`REQUEST_CHANGES`.

@@ -2,8 +2,8 @@
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
 description: "Refine an implementation plan using parallel correctness and completeness critics"
 requires-argument: false
-argument-hint: "plan-name.md [--new-file] [--iterate]"
-argument-description: "Optional plan file. If omitted, choose from recent files in ~/.claude/plans"
+argument-hint: "plan-name.md [--new-file] [--single]"
+argument-description: "Optional plan file. --single for 1 pass (default is 2). If omitted, choose from recent files in ~/.claude/plans"
 ---
 
 # Refine Plan with Parallel Critics
@@ -14,7 +14,8 @@ Run two specialized critic agents (correctness and completeness) against a draft
 
 1. Parse `$ARGUMENTS` for flags:
    - `--new-file` => `new_file_mode=true` (write refined plan to `{stem}-refined.md`)
-   - `--iterate` => `iterate_mode=true` (run 2 critic passes instead of 1)
+   - `--single` => `single_mode=true` (run 1 critic pass instead of default 2)
+   - `--iterate` => accepted for backward compatibility; log: `Note: --iterate is now the default. Flag ignored.`
    - Remaining argument (after flag removal) is the plan path
 
 2. Resolve plan path from remaining argument:
@@ -46,7 +47,7 @@ Run two specialized critic agents (correctness and completeness) against a draft
    ```
    Parse JSON output: store `{resolved_content}`, `{guidelines_loaded_section}`, `{expected_guidelines}`.
 
-   **Step 7b — Plan-scoped directory probing**: Extract file paths from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (same parsing as `implement.md` Phase 2 Step 1a — bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{plan_files}`.
+   **Step 7b — Plan-scoped directory probing**: Extract file paths from `{plan_contents}` by looking for a `## Files to modify` heading or similar enumeration of file paths (bulleted/numbered lists of paths, or paths mentioned in section headings like `### path/to/file`). Store as `{plan_files}`.
 
    If `{plan_files}` is non-empty:
    - Compute ancestor directories from those paths (same algorithm as `compute_ancestor_dirs` in `resolve-claude-md.py:82` — split each path on `/`, collect all prefix directories, always include root).
@@ -63,8 +64,8 @@ Run two specialized critic agents (correctness and completeness) against a draft
 ## Phase 1: Critic Loop
 
 Set `{max_passes}`:
-- 1 (default)
-- 2 (with `--iterate`)
+- 2 (default)
+- 1 (with `--single`)
 
 Set `{pass} = 0`.
 
@@ -99,7 +100,25 @@ For your #### Guidelines Loaded output section, use this pre-computed block:
 
 - If `{resolved_content}` is empty, omit the guidelines block entirely.
 
-On pass 2 (with `--iterate`), also include Prior Iteration Context:
+On pass 2, include additional context based on pass 1 results. These two cases are mutually exclusive:
+
+**Case A — Pass 1 was clean (both ACCURATE + COMPLETE)**: Prepend the Adversarial Challenge prompt to each critic. Do NOT include Prior Iteration Context (there are no prior issues).
+
+```
+Adversarial Challenge:
+The previous pass found zero issues. Your job on this pass is to find what was missed.
+
+Specifically:
+- Assume the first pass was superficial. Look deeper.
+- Check claims and callers that are easy to overlook — indirect callers, re-exports,
+  dynamic dispatch, string-based references.
+- Verify edge cases in less-obvious code paths (error handlers, fallback logic, cleanup).
+- Examine whether the plan's changes interact with each other in ways that create new issues.
+- If you still find nothing after thorough investigation, return a clean verdict — but your
+  evidence minimums are raised: correctness must verify ≥10 claims, completeness must trace ≥7 callers.
+```
+
+**Case B — Pass 1 had findings**: Include the standard Prior Iteration Context block. Do NOT include the Adversarial Challenge prompt.
 
 ```
 Prior Iteration Context (pass 1):
@@ -157,13 +176,18 @@ Classify each finding:
 
 Deduplicate cross-critic findings targeting the same file/section **or the same claim topic**. If a correctness issue and a completeness gap both address the same concern (e.g., both flag a performance claim), merge them into a single fix item.
 
-If both verdicts are clean (ACCURATE + COMPLETE), check evidence depth before exiting:
+**Evidence depth validation** (runs on every pass, not just clean verdicts):
 - Parse `{N}` (claims verified) from the correctness critic's `#### Evidence` section and `{M}` (symbols traced) from the completeness critic's `#### Evidence` section.
-- Correctness critic must report at least 5 evidence items. If fewer: log warning, re-run that critic once with explicit instruction to verify more claims.
-- Completeness critic must report at least 3 callers-checked evidence items. If fewer: log warning, re-run that critic once with explicit instruction to trace more symbols.
+- Standard minimums: correctness ≥8 claims, completeness ≥5 callers.
+- Adversarial minimums (when the adversarial challenge prompt was active for this pass): correctness ≥10 claims, completeness ≥7 callers.
+- If below threshold: log warning, re-run that critic once with explicit instruction to verify more claims / trace more symbols.
 - Evidence-depth re-run and parse-failure retry (from Phase 1.2) share a single-retry budget per critic — max 1 total retry per critic regardless of reason.
 - If a critic's retry budget is already spent and evidence minimums are still not met, log a warning (e.g., `Warning: <critic-name> evidence depth below threshold after retry budget exhausted`) and proceed as if evidence minimums were met.
-- Only exit early if both critics meet their evidence minimums (or the above fallthrough applies). Skip to Phase 2 report.
+
+**Pass outcome routing**:
+1. If both verdicts are clean on pass 1 (2-pass mode): do NOT exit early. Continue to pass 2 with the adversarial challenge prompt (see Phase 1.1 Case A).
+2. If both verdicts are clean on the final pass (pass 2, or pass 1 in `--single` mode): no findings to revise — proceed to Phase 1.5 (post-loop gate).
+3. If verdicts have findings: proceed to Phase 1.4 (revision) as normal.
 
 ### 1.4 Revise the plan
 
@@ -190,13 +214,28 @@ Changes:
 - [Must-fix] {title}: {brief description of what was changed}
 - [Should-fix] {title}: {brief description of what was changed}
 - [Nice-to-fix] {title}: {brief description of what was changed}
+- [Skipped] {title} ({severity}): {brief justification for why this was not addressed}
 ```
+
+Note: `[Skipped]` may only be used for should-fix and nice-to-fix items. Must-fix items cannot be skipped.
 
 Write the revised plan to `{output_path}`.
 
-Update `{plan_contents}` to the revised plan for the next pass (if `--iterate`).
+Update `{plan_contents}` to the revised plan for the next pass.
 
 Continue to next pass if applicable.
+
+### 1.5 Post-loop gate
+
+After all passes complete, scan the cumulative refinement log across all passes.
+
+**Must-fix gate**: If any must-fix item was raised but not addressed in any pass's revision, **stop with error** listing the unresolved items. Must-fix items cannot be skipped.
+
+**Should-fix gate**: Every should-fix item must be either:
+1. Addressed in a revision (`[Should-fix]` in Changes list), OR
+2. Explicitly skipped with justification (`[Skipped]` entry in refinement log)
+
+Stop with error if any should-fix item is neither addressed nor justified-skipped.
 
 ## Phase 2: Report
 
@@ -210,12 +249,12 @@ Plan refinement complete.
   Output: {output_path}
 ```
 
-If both verdicts were clean on the first pass:
+If both verdicts were clean on all passes:
 ```
 Plan refinement complete.
-  Iterations: 1
-  Correctness: ACCURATE (0 issues, {N} claims verified)
-  Completeness: COMPLETE (0 gaps, {M} symbols traced)
+  Iterations: {pass}
+  Correctness: ACCURATE (0 issues, {N} claims verified across {pass} passes)
+  Completeness: COMPLETE (0 gaps, {M} symbols traced across {pass} passes)
   Output: {output_path} (unchanged)
 ```
 
@@ -230,12 +269,14 @@ Plan refinement complete.
 | Plan has no verifiable claims | Correctness critic may return HAS_ERRORS with low-severity unverifiable-claim issues — orchestrator treats these as Nice-to-fix; if all findings are unverifiable-claim issues only, log them in the refinement log but do not block the plan |
 | CLAUDE.md resolution fails | Warn, proceed without guidelines |
 | No parseable file list in plan | Warn, root-only guidelines probing |
+| Unresolved must-fix items after all passes | Stop with error listing unresolved must-fix items |
+| Unjustified should-fix items after all passes | Stop with error listing should-fix items neither addressed nor skipped |
 
 ## Important Rules
 
 - Always launch BOTH critics in parallel in a single message.
 - The orchestrator revises the plan directly — do not spawn a third agent.
 - Overwrite the plan file by default (plans are in git, `git diff` shows before/after). Use `--new-file` for safety.
-- Max 2 iterations (`--iterate`) — diminishing returns beyond that.
+- Default 2 iterations; use `--single` for 1 pass.
 - Preserve the plan's existing structure when revising.
 - Use distinct verdict names: `ACCURATE`/`HAS_ERRORS` (correctness) and `COMPLETE`/`HAS_GAPS` (completeness) — these are different from reviewer `APPROVE`/`REQUEST_CHANGES`.

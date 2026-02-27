@@ -56,6 +56,11 @@ Check the plan for gaps in:
 - **Observability**: Logging, metrics, or tracing updates needed for changed code paths
 - **Performance implications**: N+1 queries, unbounded loops, large memory allocations, blocking calls on hot paths
 - **Security surface**: Input validation, auth checks, authorization logic, data sanitization affected by the change
+- **Verification section**: Plans with testable code changes (source files, config, scripts) must include a `## Verification` section:
+  - **Missing section**: Plans with testable code changes that have no `## Verification` heading → severity=high
+  - **Non-executable section**: `## Verification` exists but contains only prose (no fenced bash/sh/shell/zsh/untagged code blocks, no inline backtick commands whose first word is a recognized shell command such as `cd`, `git`, `npm`, `npx`, `yarn`, `pnpm`, `gradle`, `gradlew`, `mvn`, `make`, `cargo`, `go`, `python`, `python3`, `pytest`, `docker`, `docker-compose`, `curl`, `grep`, or starts with `./`) → severity=medium
+  - **Slash-command-only section**: Verification references `/slash-commands` instead of shell commands → severity=medium
+  - **Documentation-only exception**: Plans whose target files (listed in the Files section) consist exclusively of `.md` documentation files, inline comments, or file deletions with no replacements may reasonably omit verification — do not flag these
 
 ## Workflow
 
@@ -84,18 +89,19 @@ Check the plan for gaps in:
 
    Keep the loaded guidelines in mind when evaluating completeness — they represent
    project-specific conventions and standards that the plan must satisfy.
-4. For each modified public symbol, use Grep to find direct callers (level 1). For each direct caller, also find its callers (level 2). If a level-1 caller has >20 callers of its own, note the count but don't trace each individually. Use compact summary format for 2-level tracing evidence (e.g., "symbol X: 3 direct callers, 12 level-2 callers") rather than enumerating every caller to stay within the 150-line output target.
+4. For each modified public symbol, use Grep to find direct callers (level 1). For each direct caller, also find its callers (level 2). If a level-1 caller has >20 callers of its own, note the count but don't trace each individually. Use compact summary format for 2-level tracing evidence (e.g., "symbol X: 3 direct callers, 12 level-2 callers") rather than enumerating every caller to stay within the 200-line output target.
 5. Check if every caller/dependent that needs updating is covered by the plan
 6. Review error handling: for each code path the plan modifies, trace what happens on failure
 7. Check test coverage: does the plan include tests? Do existing test files need updating?
 8. Check project conventions from CLAUDE.md: does the plan follow naming, structure, and architecture rules?
 9. Check sequencing: are changes ordered correctly given dependencies?
 10. Compile all gaps with evidence and suggestions
+11. Check verification section: does the plan include a `## Verification` section with executable commands? (see Review Focus — Verification section)
 
 ## Concision Requirements
 
-- Keep output compact and high signal: target <= 150 lines.
-- For COMPLETE: provide exactly 3-5 evidence bullets showing coverage checks you performed.
+- Keep output compact and high signal: target <= 200 lines.
+- For COMPLETE: provide at least 5 evidence bullets showing coverage checks you performed.
 - For HAS_GAPS: report at most 12 highest-impact gaps; merge duplicates.
 - Do not include long narrative background; keep each gap concise and concrete.
 
@@ -104,12 +110,12 @@ Check the plan for gaps in:
 - **COMPLETE**: No coverage gaps found — all callers covered, tests included, conventions followed
 - **HAS_GAPS**: Any coverage gap found (even low severity)
 - Never return COMPLETE without concrete evidence of callers/dependents you checked.
-- Must trace callers for at least 3 distinct symbols with file:line evidence before returning COMPLETE. If the plan modifies fewer than 3 symbols, state why in the Evidence section.
+- Must trace callers for at least 5 distinct symbols with file:line evidence before returning COMPLETE. If the plan modifies fewer than 5 symbols, state why in the Evidence section.
 
 ### Severity Guide
 
-- **high**: Gap that would break callers or leave the codebase in an inconsistent state — missing caller updates, breaking interface changes without migration, missing required test files, missing error handling on external calls (network, file I/O, database)
-- **medium**: Gap that produces incomplete or fragile results — missing error handling, untested edge cases, partial convention compliance, missing rollback/cleanup on partial failure, convention deviations (naming, structure, architecture rules from CLAUDE.md)
+- **high**: Gap that would break callers or leave the codebase in an inconsistent state — missing caller updates, breaking interface changes without migration, missing required test files, missing error handling on external calls (network, file I/O, database), missing verification section entirely (for plans with testable code changes)
+- **medium**: Gap that produces incomplete or fragile results — missing error handling, untested edge cases, partial convention compliance, missing rollback/cleanup on partial failure, convention deviations (naming, structure, architecture rules from CLAUDE.md), non-executable verification section (prose-only, slash-commands, or non-command backtick spans)
 - **low**: Gap that represents missing polish — optional test cases, documentation gaps
 
 ## Output Format
@@ -120,7 +126,7 @@ Hard requirements:
 - The first non-empty line must be exactly `## Critique: Plan Completeness`.
 - Include exactly one verdict header: `### Verdict: COMPLETE` or `### Verdict: HAS_GAPS`.
 - Every evidence item must include at least one `path:line` anchor or file path reference.
-- Keep the response concise (target <= 150 lines).
+- Keep the response concise (target <= 200 lines).
 - Do not emit placeholder text (for example `Full evidence provided`, `details omitted`, or summary-only stubs).
 - Include a `#### Guidelines Loaded` section between `#### Plan Summary` and the verdict.
 - In `#### Guidelines Loaded`, report each `@` directive encountered during CLAUDE.md loading as an indented sub-item under its parent CLAUDE.md with status: `resolved`, `truncated`, `not-found`, `cycle-skipped`, or `budget-dropped`.
@@ -167,14 +173,14 @@ OR
 
 #### Gap 1: [Title]
 - **Severity**: high | medium | low
-- **Category**: missing-caller | error-handling | edge-case | test-coverage | migration | sequencing | missing-import | configuration | convention-violation | rollback | observability | performance | security
+- **Category**: missing-caller | error-handling | edge-case | test-coverage | migration | sequencing | missing-import | configuration | convention-violation | rollback | observability | performance | security | verification-section
 - **Description**: <what is missing from the plan>
 - **Evidence**: <grep/read results showing the gap, with path:line references>
 - **Suggestion**: <specific addition to the plan>
 
 #### Gap 2: [Title]
 - **Severity**: high | medium | low
-- **Category**: missing-caller | error-handling | edge-case | test-coverage | migration | sequencing | missing-import | configuration | convention-violation | rollback | observability | performance | security
+- **Category**: missing-caller | error-handling | edge-case | test-coverage | migration | sequencing | missing-import | configuration | convention-violation | rollback | observability | performance | security | verification-section
 - **Description**: <what is missing from the plan>
 - **Evidence**: <grep/read results showing the gap, with path:line references>
 - **Suggestion**: <specific addition to the plan>

@@ -219,6 +219,18 @@ class TestValidateInput:
         errors = mod.validate_input(data)
         assert errors == []
 
+    def test_skipped_reviewer_verdict_accepted(self):
+        data = _full_data()
+        data["verdicts"]["arch"] = "SKIPPED"
+        errors = mod.validate_input(data)
+        assert errors == []
+
+    def test_skipped_overall_verdict_rejected(self):
+        data = _full_data()
+        data["verdicts"]["overall"] = "SKIPPED"
+        errors = mod.validate_input(data)
+        assert any("verdicts.overall" in e for e in errors)
+
     def test_missing_pr_fields_rejected(self):
         data = _full_data()
         data["pr"] = {}
@@ -293,6 +305,15 @@ class TestRenderSummaryBar:
             {"p0": 0, "p1": 1, "p2": 0, "nitpick": 0},
         )
         assert "chip-zero" in html
+
+    def test_skipped_badge(self):
+        verdicts = _minimal_verdicts()
+        verdicts["arch"] = "SKIPPED"
+        html = mod.render_summary_bar(
+            verdicts, {"p0": 0, "p1": 0, "p2": 0, "nitpick": 0},
+        )
+        assert "badge-skipped" in html
+        assert "arch=SKIPPED" in html
 
 
 class TestRenderGuidelines:
@@ -373,6 +394,41 @@ class TestRenderGuidelines:
     def test_none_guidelines(self):
         html = mod.render_guidelines(None)
         assert "No CLAUDE.md files found" in html
+
+    def test_skipped_reviewer_in_guidelines_table(self):
+        guidelines = {
+            "expected_files": ["CLAUDE.md"],
+            "expected_directives": [],
+            "pr_added_files": [],
+            "reviewers": {
+                "bug": {"files_count": 1, "directives_count": 0, "matched": True},
+                "arch": {"files_count": 1, "directives_count": 0, "matched": True},
+                "quality": {"files_count": 1, "directives_count": 0, "matched": True},
+                "tests": {"files_count": 1, "directives_count": 0, "matched": True},
+            },
+            "warnings": [],
+        }
+        verdicts = _minimal_verdicts()
+        verdicts["arch"] = "SKIPPED"
+        html = mod.render_guidelines(guidelines, verdicts)
+        assert "guidelines-skip" in html
+        assert "SKIPPED" in html
+
+    def test_missing_reviewer_data_not_treated_as_skipped(self):
+        """Malformed/missing reviewer entry should NOT show SKIPPED."""
+        guidelines = {
+            "expected_files": ["CLAUDE.md"],
+            "expected_directives": [],
+            "pr_added_files": [],
+            "reviewers": {
+                "bug": {"files_count": 1, "directives_count": 0, "matched": True},
+                # arch intentionally missing from reviewers
+            },
+            "warnings": [],
+        }
+        verdicts = _minimal_verdicts()  # arch=APPROVE (not SKIPPED)
+        html = mod.render_guidelines(guidelines, verdicts)
+        assert "SKIPPED" not in html
 
 
 class TestRenderToc:
@@ -689,6 +745,42 @@ class TestAssemblePipelineSmoke:
 
             assert "<!DOCTYPE html>" in final_html
             assert "{{BODY}}" not in final_html
+            assert "Overall: APPROVE" in final_html
+
+    def test_skipped_reviewer_assembly(self):
+        data = _full_data(issues=[])
+        data["verdicts"] = {
+            "bug": "APPROVE", "arch": "SKIPPED",
+            "quality": "APPROVE", "tests": "APPROVE",
+            "overall": "APPROVE",
+        }
+        body_html = mod.generate_body(data)
+
+        script_dir = os.path.dirname(__file__)
+        assemble_script = os.path.join(script_dir, "assemble-report.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            body_path = os.path.join(tmpdir, "body.html")
+            output_path = os.path.join(tmpdir, "report.html")
+
+            with open(body_path, "w", encoding="utf-8") as f:
+                f.write(body_html)
+
+            result = subprocess.run(
+                [
+                    "python3", assemble_script,
+                    body_path, output_path,
+                    "--title", "PR Review: #42 - Partial",
+                ],
+                capture_output=True, text=True,
+            )
+            assert result.returncode == 0, f"assemble-report.py failed: {result.stderr}"
+
+            with open(output_path, "r", encoding="utf-8") as f:
+                final_html = f.read()
+
+            assert "badge-skipped" in final_html
+            assert "arch=SKIPPED" in final_html
             assert "Overall: APPROVE" in final_html
 
 

@@ -90,7 +90,7 @@ def file_display(path: str, line_range: str | None) -> tuple[str, str]:
 
 
 VALID_TIERS = {"p0", "p1", "p2", "nitpick"}
-VALID_VERDICTS = {"APPROVE", "REQUEST_CHANGES"}
+VALID_VERDICTS = {"APPROVE", "REQUEST_CHANGES", "SKIPPED"}
 REQUIRED_ISSUE_FIELDS = {"id", "tier", "title", "reviewer", "file", "problem", "suggestion"}
 
 _LINE_RANGE_RE = re.compile(r"^(\d+)-(\d+)$")
@@ -125,10 +125,13 @@ def validate_input(data: dict[str, Any]) -> list[str]:
 
     # Verdicts
     verdicts = data["verdicts"]
-    for key in ("bug", "arch", "quality", "tests", "overall"):
+    for key in ("bug", "arch", "quality", "tests"):
         val = verdicts.get(key)
         if val not in VALID_VERDICTS:
-            errors.append(f"verdicts.{key} must be APPROVE or REQUEST_CHANGES, got: {val!r}")
+            errors.append(f"verdicts.{key} must be APPROVE, REQUEST_CHANGES, or SKIPPED, got: {val!r}")
+    overall = verdicts.get("overall")
+    if overall not in ("APPROVE", "REQUEST_CHANGES"):
+        errors.append(f"verdicts.overall must be APPROVE or REQUEST_CHANGES, got: {overall!r}")
 
     # Issues
     issues = data["issues"]
@@ -210,7 +213,12 @@ def render_summary_bar(verdicts: dict[str, str], tier_counts: dict[str, int]) ->
     parts.append('  <div class="summary-group">')
     for key in ("bug", "arch", "quality", "tests"):
         verdict = verdicts[key]
-        css = "badge-approve" if verdict == "APPROVE" else "badge-request-changes"
+        if verdict == "SKIPPED":
+            css = "badge-skipped"
+        elif verdict == "APPROVE":
+            css = "badge-approve"
+        else:
+            css = "badge-request-changes"
         parts.append(f'    <span class="badge {css}">{key}={verdict}</span>')
     parts.append("  </div>")
 
@@ -239,7 +247,7 @@ def render_summary_bar(verdicts: dict[str, str], tier_counts: dict[str, int]) ->
     return "\n".join(parts)
 
 
-def render_guidelines(guidelines: dict[str, Any] | None) -> str:
+def render_guidelines(guidelines: dict[str, Any] | None, verdicts: dict[str, str] | None = None) -> str:
     """Render the guidelines context section."""
     if guidelines is None:
         guidelines = {}
@@ -301,6 +309,9 @@ def render_guidelines(guidelines: dict[str, Any] | None) -> str:
         parts.append('      <table class="guidelines-table">')
         parts.append("        <tr><th>Reviewer</th><th>Files</th><th>Directives</th><th>Status</th></tr>")
         for rkey in ("bug", "arch", "quality", "tests"):
+            if verdicts and verdicts.get(rkey) == "SKIPPED":
+                parts.append(f'        <tr><td>{rkey}</td><td>&mdash;</td><td>&mdash;</td><td class="guidelines-skip">SKIPPED</td></tr>')
+                continue
             rdata = reviewers.get(rkey, {})
             fc = rdata.get("files_count", 0)
             dc = rdata.get("directives_count", 0)
@@ -493,7 +504,7 @@ def generate_body(data: dict[str, Any]) -> str:
     parts.append(render_summary_bar(verdicts, tier_counts))
 
     # Guidelines (always included)
-    parts.append(render_guidelines(guidelines))
+    parts.append(render_guidelines(guidelines, verdicts))
 
     # Zero-issues case: omit TOC, toggle bar, and main
     has_issues = len(issues) > 0

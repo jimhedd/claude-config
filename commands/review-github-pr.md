@@ -170,7 +170,13 @@ Parse each agent's output to extract:
      rejects null values for required fields). Set `severity` to `nitpick`.
    - Include these as nitpick-tier items in the JSON `issues[]` array.
 
-If an agent's output cannot be parsed, warn about that reviewer but continue with the others. If ALL agents fail, stop and report the error.
+<!-- SYNC: parse-failure retry — simpler variant; see implement.md Phase 3.2 step 2, refine-plan.md Phase 1.2 -->
+**Parse failure handling**:
+- If a reviewer's output is unparseable, rerun that reviewer once (same prompt, same context).
+- If still unparseable on retry: set that reviewer's verdict to `SKIPPED`, log `Warning: <reviewer> produced unparseable output after retry — marking SKIPPED`, and continue with remaining reviewers.
+- If all 4 reviewers are SKIPPED after retry: stop and report the error.
+
+No minimum-reviewer threshold is needed (unlike `implement.md` which has ≥2 parseable + ≥1 P0-capable). This command produces an informational report — a partial report from 1-3 reviewers is more useful than no report.
 
 <!-- SYNC: Guidelines cross-check — keep in sync with implement.md Phase 3.2, refine-plan.md Phase 1.2 -->
 For each reviewer, extract and cross-check the `#### Guidelines Loaded` section against
@@ -253,6 +259,8 @@ Reviewers: bug=<verdict>  arch=<verdict>  quality=<verdict>  tests=<verdict>
 Overall: <APPROVE|REQUEST_CHANGES>  (<count> P0, <count> P1, <count> P2, <count> nitpick)
 ```
 
+Where `<verdict>` is `APPROVE`, `REQUEST_CHANGES`, or `SKIPPED`. The overall verdict is computed only from non-SKIPPED reviewers.
+
 All issue details are in the HTML report (Step 8). Do not render issue lists, guidelines context, or any other sections here.
 
 ### Step 8: Generate HTML Report
@@ -316,11 +324,13 @@ All issue details are in the HTML report (Step 8). Do not render issue lists, gu
 ```
 
 Field rules:
+- `guidelines.reviewers.<key>`: A SKIPPED reviewer should have `"matched": null` (not true/false)
 - `pr.base_sha` and `pr.head_sha`: first 8 characters
 - `issues[].id`: unique across all issues (e.g., `P0-1`, `P1-1`, `P2-1`, `N-1`)
 - `issues[].tier`: one of `p0`, `p1`, `p2`, `nitpick`
 - `issues[].line_range`: `"N-N"` format (single line `12` becomes `"12-12"`), or `null`
-- `verdicts.*`: `"APPROVE"` or `"REQUEST_CHANGES"`
+- `verdicts.{bug,arch,quality,tests}`: `"APPROVE"`, `"REQUEST_CHANGES"`, or `"SKIPPED"`
+- `verdicts.overall`: `"APPROVE"` or `"REQUEST_CHANGES"` (never SKIPPED — computed from non-SKIPPED reviewers only)
 
 **8b.** Render body + pairs:
 ```bash
@@ -361,8 +371,8 @@ If cleanup fails, warn: "Warning: Could not remove worktree at <path>. Run `git 
 | No PR number provided | Stop with usage message |
 | `gh pr view` fails | Stop: "PR not found or auth error" |
 | Worktree path already exists | Remove and recreate |
-| Agent output unparseable | Warn, skip that reviewer, continue with others |
-| All 4 agents fail | Stop and report error |
+| Agent output unparseable | Retry once; if still unparseable, mark SKIPPED and continue |
+| All 4 agents SKIPPED after retry | Stop and report error |
 | Worktree cleanup fails | Warn, suggest `git worktree prune` |
 
 ## Important Notes
